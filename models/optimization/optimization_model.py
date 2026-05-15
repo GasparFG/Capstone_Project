@@ -123,13 +123,17 @@ d_off = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"doff_{j}_{k}")
 
 m_j = {j: mdl.addVar(vtype=GRB.BINARY, name=f"m_{j}") for j in J}
 
+# All possible starts for preventive maintenance
 pm_starts = [k for k in K if k <= nK - d_pm]
+
 v = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"v_{j}_{k}")
      for j in J for k in pm_starts}
+
 
 z = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"z_{j}_{k}")
      for j in J for k in K}
 
+#Phi or McCormick linearization of mj * yjk
 mk = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"mk_{j}_{k}")
       for j in J for k in K}
 
@@ -146,6 +150,10 @@ Ptot  = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}")  for k in K}
 s   = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
 psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
        for j in J for k in K}
+
+# Critical job official start slot (to force all replicas to start at the same time)
+u = {(i, k): mdl.addVar(vtype=GRB.BINARY, name=f"u_{i}_{k}")
+     for i in I_C for k in valid_starts(i)}
 
 mdl.update()
 
@@ -175,6 +183,15 @@ for i in I:
         name=f"c5_{i}")
 
 # --- #6/#7  Release time / interactive hard deadline enforced in valid_starts() ---
+
+# --- Critical replicas start synchronously ---
+for i in I_C:
+    for k in valid_starts(i):
+        mdl.addConstr(
+            gp.quicksum(X[i, j, k] for j in S[i] if (i, j, k) in X) == q[i] * u[i, k],
+            name=f"crit_sync_{i}_{k}"
+        )
+
 
 # --- #8  Precedence ---
 for (i_pred, i_succ) in E:
