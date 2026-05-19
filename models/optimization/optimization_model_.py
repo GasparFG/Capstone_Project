@@ -41,7 +41,7 @@ from typing import Any, Dict, List, Tuple
 
 import gurobipy as gp
 from gurobipy import GRB
-from models.optimization.optimization_model import I_C, valid_starts
+from optimization_model import I_C, valid_starts
 
 
 # ---------------------------------------------------------------------------
