@@ -11,7 +11,7 @@ def clean_data(input_path, output_path):
     # Convert timestamps
     timestamp_columns = ["start_timestamp","end_timestamp"]
     for col in timestamp_columns:
-        df[col] = pd.to_datetime(df[col],errors="coerce")
+        df[col] = pd.to_timedelta(df[col], unit="s")
 
     # Coalesce resource columns into unified usage signals
     df["cpu_usage"] = df["plan_cpu"].combine_first(df["real_cpu_avg"]).fillna(0)
@@ -55,7 +55,7 @@ def clean_data(input_path, output_path):
 
     #Save clean dataset
     df.to_parquet(output_path, index=False)
-    
+
     # Preview results
     print(f"Cleaned dataset saved to: {output_path}")
     print(f"Shape: {df.shape}")
