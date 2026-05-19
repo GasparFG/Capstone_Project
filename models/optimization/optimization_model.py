@@ -25,7 +25,7 @@ params = {
 env = gp.Env(params=params)
 
 # create the model within
-model = gp.Model(env=env)
+# model = gp.Model(env=env)
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +115,8 @@ def running_at(job, j, k):
 # ---------------------------------------------------------------------------
 # 2.  Build model
 # ---------------------------------------------------------------------------
-mdl = gp.Model("datacenter_1day")
 mdl.setParam("TimeLimit", 120)
+mdl = gp.Model("datacenter_1day",env=env)
 mdl.setParam("MIPGap",    0.02)
 
 # ---------------------------------------------------------------------------
