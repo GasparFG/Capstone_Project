@@ -31,7 +31,7 @@ model = gp.Model(env=env)
 # ---------------------------------------------------------------------------
 # 1.  Load data
 # ---------------------------------------------------------------------------
-with open(r"C:\Users\gfg30\OneDrive\Desktop\Capstone_Project\models\optimization\data.json") as f:
+with open("data.json") as f:
     data = json.load(f)
 
 I = data["sets"]["I"]
@@ -145,10 +145,6 @@ v = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"v_{j}_{k}")
 z = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"z_{j}_{k}")
      for j in J for k in K}
 
-# Phi or McCormick linearization of mj * yjk
-mk = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"mk_{j}_{k}")
-      for j in J for k in K}
-
 l_var = {i: mdl.addVar(lb=0.0, name=f"l_{i}") for i in I_B}
 
 L = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"L_{j}_{k}")
@@ -160,12 +156,9 @@ Pcool = {k: mdl.addVar(lb=0.0, name=f"Pcool_{k}") for k in K}
 Ptot = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}") for k in K}
 
 s = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
+
 psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
        for j in J for k in K}
-
-# Critical job official start slot (to force all replicas to start at the same time)
-u = {(i, k): mdl.addVar(vtype=GRB.BINARY, name=f"u_{i}_{k}")
-     for i in I_C for k in valid_starts(i)}
 
 mdl.update()
 
@@ -175,7 +168,7 @@ mdl.update()
 energy_cost = c_e * delta_t / 1000.0 * gp.quicksum(Ptot[k] for k in K)
 pm_cost = gp.quicksum(c_pm * m_j[j] for j in J)
 cm_cost = c_cm * gp.quicksum(
-    lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * mk[j, k]
+    lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * m_j[j] * y[j, k]
     for j in J for k in K)
 sw_cost = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]
                              for j in J for k in K[:-1])
@@ -196,16 +189,6 @@ for i in I:
 
 # --- #6/#7  Release time / interactive hard deadline enforced in valid_starts() ---
 
-# --- Critical replicas start synchronously ---
-for i in I_C:
-    for k in valid_starts(i):
-        mdl.addConstr(
-            gp.quicksum(X[i, j, k]
-                        for j in S[i] if (i, j, k) in X) == q[i] * u[i, k],
-            name=f"crit_sync_{i}_{k}"
-        )
-
-
 # --- #8  Precedence ---
 for (i_pred, i_succ) in E:
     mdl.addConstr(s[i_succ] >= s[i_pred] + d[i_pred],
@@ -213,10 +196,11 @@ for (i_pred, i_succ) in E:
 
 # --- Start-time definition ---
 for i in I:
-    mdl.addConstr(
-        s[i] == gp.quicksum(k * X[i, j, k]
-                            for j in S[i] for k in valid_starts(i)),
-        name=f"cs_{i}")
+    for k in valid_starts(i):
+        mdl.addConstr(
+            s[i] >= gp.quicksum(k * X[i, j, k]
+                            for j in S[i]),
+                     name=f"cs_{i}")
 
 # --- #9  Batch-only capacity (interactive reservation) ---
 for j in J:
@@ -389,13 +373,6 @@ for i in I_C:
 mdl.addConstr(
     gp.quicksum((q[i] - 1) * r[i] for i in I_C) <= Q_max,
     name="c36")
-
-# --- McCormick linearisation: mk[j,k] = m_j[j] * y[j,k] ---
-for j in J:
-    for k in K:
-        mdl.addConstr(mk[j, k] <= m_j[j],               name=f"mc1_{j}_{k}")
-        mdl.addConstr(mk[j, k] <= y[j, k],               name=f"mc2_{j}_{k}")
-        mdl.addConstr(mk[j, k] >= m_j[j] + y[j, k] - 1, name=f"mc3_{j}_{k}")
 
 # --- Non-critical anti-affinity: can't share a server ---
 for (i1, i2) in G:
