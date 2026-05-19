@@ -14,8 +14,11 @@ def clean_data(input_path, output_path):
         df[col] = pd.to_timedelta(df[col], unit="s")
 
     # Coalesce resource columns into unified usage signals
-    df["cpu_usage"] = df["plan_cpu"].combine_first(df["real_cpu_avg"]).fillna(0)
-    df["mem_usage"] = df["plan_mem"].combine_first(df["real_mem_avg"]).fillna(0)
+    df["cpu_usage"] = df["plan_cpu"].combine_first(df["real_cpu_avg"])
+    df["mem_usage"] = df["plan_mem"].combine_first(df["real_mem_avg"])
+
+    # Drop rows where both sources were null
+    df = df.dropna(subset=["cpu_usage", "mem_usage"])
 
     # Drop unnecesary columns
     cols_to_drop = ["job_id",           # encoded in uid
@@ -36,9 +39,9 @@ def clean_data(input_path, output_path):
     # Remove duplicates
     df = df.drop_duplicates()
 
-    # Remove negative resource values
+    # Remove negative or zero resource values
     for col in ["cpu_usage", "mem_usage"]:
-        df = df[df[col] >= 0]
+        df = df[df[col] > 0]
 
     # Remove invalid or missing start timestamps
     df = df[df["start_timestamp"].notna()]
@@ -48,6 +51,10 @@ def clean_data(input_path, output_path):
 
     # Create duration feature
     df["duration_minutes"] = ((df["end_timestamp"] - df["start_timestamp"]).dt.total_seconds() / 60)
+
+    # Drop rows where duration is null (end_timestamp was null) or zero
+    df = df[df["duration_minutes"].notna()]
+    df = df[df["duration_minutes"] > 0]
 
     # Final column order
     df = df[["uid", "job_type", "start_timestamp", "end_timestamp",
@@ -62,6 +69,7 @@ def clean_data(input_path, output_path):
     print(f"\n=== dtypes ===\n{df.dtypes}")
     print(f"\n=== null counts ===\n{df.isnull().sum()}")
     print(f"\n=== job_type counts ===\n{df['job_type'].value_counts()}")
+    print(f"\n=== cpu_usage / mem_usage stats ===\n{df[['cpu_usage', 'mem_usage']].describe()}")
     print(f"\n=== sample (5 batch, 5 interactive) ===")
     sample = pd.concat([
         df[df["job_type"] == "batch"].head(5),
