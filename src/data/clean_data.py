@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 def clean_data(input_path, output_path):
     """
@@ -13,25 +14,39 @@ def clean_data(input_path, output_path):
     for col in timestamp_columns:
         df[col] = pd.to_timedelta(df[col], unit="s")
 
-    # Coalesce resource columns into unified usage signals
-    df["cpu_usage"] = df["plan_cpu"].combine_first(df["real_cpu_avg"])
-    df["mem_usage"] = df["plan_mem"].combine_first(df["real_mem_avg"])
+    # Compute resource usage per job type
 
-    # Drop rows where both sources were null
+    #CPU
+    df["cpu_usage"] = np.where(df["job_type"] == "batch",
+                                # batch (cpu_usage = plan_cpu)
+                                df["plan_cpu"],
+                                # interactive (cpu_usage = (real_cpu_avg * plan_cpu) / 100)
+                                (df["real_cpu_avg"] * df["plan_cpu"]) / 100  
+                                )
+    
+    #Memory
+    df["mem_usage"] = np.where(df["job_type"] == "batch",
+                                # batch (mem_usage = plan_mem * capacity_memory)
+                                df["plan_mem"] * df["capacity_memory"],
+                                # interactive (mem_usage = (real_mem_avg * plan_mem) / 100 * capacity_memory)
+                                ((df["real_mem_avg"] * df["plan_mem"]) / 100) * df["capacity_memory"]  
+                                )
+
+    # Drop rows where usage could not be computed
     df = df.dropna(subset=["cpu_usage", "mem_usage"])
 
     # Drop unnecesary columns
     cols_to_drop = ["job_id",           # encoded in uid
                     "task_id",          # encoded in uid
                     "machine_id",       # not necessary
-                    "plan_cpu",         # merged into cpu_usage
-                    "plan_mem",         # merged into mem_usage
-                    "real_cpu_avg",     # merged into cpu_usage
-                    "real_mem_avg",     # merged into mem_usage
-                    "real_cpu_max",     # keeping avg only
-                    "real_mem_max",     # keeping avg only
+                    "plan_cpu",         # used in cpu_usage formula
+                    "plan_mem",         # used in mem_usage formula
+                    "real_cpu_avg",     # used in cpu_usage formula
+                    "real_mem_avg",     # used in mem_usage formula
+                    "real_cpu_max",     # not necessary
+                    "real_mem_max",     # not necessary
                     "capacity_cpu",     # not necessary
-                    "capacity_memory",  # not necessary
+                    "capacity_memory",  # used in mem_usage formula
                     ]
 
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
