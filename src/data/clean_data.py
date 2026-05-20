@@ -10,70 +10,32 @@ def clean_data(input_path, output_path):
     df = pd.read_parquet(input_path)
 
     # Convert timestamps
-    timestamp_columns = ["start_timestamp","end_timestamp"]
+    timestamp_columns = ["scheduled_time","deletion_time", "creation_time"]
     for col in timestamp_columns:
         df[col] = pd.to_timedelta(df[col], unit="s")
 
-    # Compute resource usage per job type
+     # Remove invalid or missing start timestamps
+    df = df[df["scheduled_time"].notna()]
 
-    #CPU
-    df["cpu_usage"] = np.where(df["job_type"] == "batch",
-                                # batch (cpu_usage = plan_cpu)
-                                df["plan_cpu"],
-                                # interactive (cpu_usage = (real_cpu_avg * plan_cpu) / 100)
-                                (df["real_cpu_avg"] * df["plan_cpu"]) / 100  
-                                )
+    # Remove negative durations (end before start)
+    df = df[(df["deletion_time"] >= df["scheduled_time"]) | (df["deletion_time"].isna())]
+
+    # Create duration feature
+    df["duration_minutes"] = ((df["deletion_time"] - df["scheduled_time"]).dt.total_seconds() / 60)
+
+    # Drop rows where duration is null (deletion_time was null) or zero
+    df = df[df["duration_minutes"].notna()]
+    df = df[df["duration_minutes"] > 0]
     
-    #Memory
-    df["mem_usage"] = np.where(df["job_type"] == "batch",
-                                # batch (mem_usage = plan_mem * capacity_memory)
-                                df["plan_mem"] * df["capacity_memory"],
-                                # interactive (mem_usage = (real_mem_avg * plan_mem) / 100 * capacity_memory)
-                                ((df["real_mem_avg"] * df["plan_mem"]) / 100) * df["capacity_memory"]  
-                                )
+    # Categorizing job type (Longer than 60 minutes = Batch. Shorter or equal than 60 minutes = Interactive)
+    df["job_type"] = np.where(df["duration_minutes"] <= 60,"interactive","batch")
 
-    # Drop rows where usage could not be computed
-    df = df.dropna(subset=["cpu_usage", "mem_usage"])
-
-    # Drop unnecesary columns
-    cols_to_drop = ["job_id",           # encoded in uid
-                    "task_id",          # encoded in uid
-                    "machine_id",       # not necessary
-                    "plan_cpu",         # used in cpu_usage formula
-                    "plan_mem",         # used in mem_usage formula
-                    "real_cpu_avg",     # used in cpu_usage formula
-                    "real_mem_avg",     # used in mem_usage formula
-                    "real_cpu_max",     # not necessary
-                    "real_mem_max",     # not necessary
-                    "capacity_cpu",     # not necessary
-                    "capacity_memory",  # used in mem_usage formula
-                    ]
-
-    df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
+    # Remove negative or zero resource values
+    for col in ["cpu_request", "memory_request"]:
+        df = df[df[col] > 0]
 
     # Remove duplicates
     df = df.drop_duplicates()
-
-    # Remove negative or zero resource values
-    for col in ["cpu_usage", "mem_usage"]:
-        df = df[df[col] > 0]
-
-    # Remove invalid or missing start timestamps
-    df = df[df["start_timestamp"].notna()]
-
-    # Remove negative durations (end before start)
-    df = df[(df["end_timestamp"] >= df["start_timestamp"]) | (df["end_timestamp"].isna())]
-
-    # Create duration feature
-    df["duration_minutes"] = ((df["end_timestamp"] - df["start_timestamp"]).dt.total_seconds() / 60)
-
-    # Drop rows where duration is null (end_timestamp was null) or zero
-    df = df[df["duration_minutes"].notna()]
-    df = df[df["duration_minutes"] > 0]
-
-    # Final column order
-    df = df[["uid", "job_type", "start_timestamp", "end_timestamp",
-             "duration_minutes", "cpu_usage", "mem_usage"]]
 
     #Save clean dataset
     df.to_parquet(output_path, index=False)
@@ -84,7 +46,7 @@ def clean_data(input_path, output_path):
     print(f"\n=== dtypes ===\n{df.dtypes}")
     print(f"\n=== null counts ===\n{df.isnull().sum()}")
     print(f"\n=== job_type counts ===\n{df['job_type'].value_counts()}")
-    print(f"\n=== cpu_usage / mem_usage stats ===\n{df[['cpu_usage', 'mem_usage']].describe()}")
+    print(f"\n=== cpu_usage / mem_usage stats ===\n{df[['cpu_request', 'memory_request']].describe()}")
     print(f"\n=== sample (5 batch, 5 interactive) ===")
     sample = pd.concat([
         df[df["job_type"] == "batch"].head(5),
