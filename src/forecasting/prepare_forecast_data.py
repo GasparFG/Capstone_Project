@@ -4,7 +4,7 @@ prepare_forecast_data.py
 This script prepares the processed forecasting dataset for SARIMA modeling.
 
 Expected input:
-    data/processed/forecasting_dataset.parquet
+    data/interim/cleaned_data.parquet
 
 Expected output:
     data/processed/sarima_ready_dataset.parquet
@@ -14,15 +14,13 @@ from pathlib import Path
 import pandas as pd
 
 
-INPUT_PATH = Path("data/processed/forecasting_dataset.parquet")
+INPUT_PATH = Path("data/interim/cleaned_data.parquet")
 OUTPUT_PATH = Path("data/processed/sarima_ready_dataset.parquet")
 
 
-REQUIRED_COLUMNS = [
-    "timestamp",
-    "cpu_utilization",
-    "ram_utilization",
-]
+REQUIRED_COLUMNS = ["uid", "job_type", "start_timestamp", "end_timestamp", "duration_minutes", "cpu_usage", "mem_usage"]
+
+
 
 
 def load_dataset(input_path: Path) -> pd.DataFrame:
@@ -54,7 +52,7 @@ def prepare_time_series_data(df: pd.DataFrame) -> pd.DataFrame:
     Steps:
     - Convert timestamp to datetime.
     - Sort records by timestamp.
-    - Aggregate CPU and RAM utilization by hourly forecasting window.
+    - Aggregate CPU and RAM utilization by 15-minute forecasting window.
     - Fill missing time windows using time interpolation.
     """
 
@@ -65,7 +63,7 @@ def prepare_time_series_data(df: pd.DataFrame) -> pd.DataFrame:
 
     hourly_df = (
         df.set_index("timestamp")
-        .resample("1H")
+        .resample("15Min")
         .agg(
             cpu_utilization=("cpu_utilization", "mean"),
             ram_utilization=("ram_utilization", "mean"),
