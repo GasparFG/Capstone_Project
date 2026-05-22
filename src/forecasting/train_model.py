@@ -1,23 +1,19 @@
 """
 train_model.py
 
-This script trains SARIMA models for workload resource forecasting.
+This script trains SARIMA models for workload demand forecasting.
 
 Expected input:
     data/processed/sarima_ready_dataset.parquet
 
 Expected outputs:
     models/forecasting/{job_type}_{metric}_sarima_model.pkl
-
-Forecasting approach:
-    - Train separate SARIMA models by job_type.
-    - Forecast CPU request, memory request, duration, and job count.
-    - Use 15-minute forecasting windows.
 """
 
 from pathlib import Path
 import pickle
 
+import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -29,9 +25,9 @@ TIME_COLUMN = "forecast_timestamp"
 GROUP_COLUMN = "job_type"
 
 TARGET_COLUMNS = [
-    "avg_cpu_request",
-    "avg_memory_request",
-    "avg_duration_minutes",
+    "total_cpu_demand",
+    "total_memory_demand",
+    "median_duration_minutes",
     "job_count",
 ]
 
@@ -51,9 +47,11 @@ def load_dataset(input_path: Path) -> pd.DataFrame:
 
 
 def train_sarima_model(series: pd.Series):
-    """Train a SARIMA model for one time-series variable."""
+    """Train a SARIMA model using log1p transformation."""
+    transformed_series = np.log1p(series.clip(lower=0))
+
     model = SARIMAX(
-        series,
+        transformed_series,
         order=SARIMA_ORDER,
         seasonal_order=SEASONAL_ORDER,
         enforce_stationarity=False,

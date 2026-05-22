@@ -8,12 +8,6 @@ Expected input:
 
 Expected output:
     data/processed/sarima_ready_dataset.parquet
-
-Forecasting approach:
-    - Use scheduled_time as the time reference.
-    - Aggregate workloads into 15-minute windows.
-    - Forecast resource demand by job_type.
-    - Prepare CPU, memory, and runtime metrics for modeling.
 """
 
 from pathlib import Path
@@ -25,6 +19,7 @@ INPUT_PATH = Path("data/interim/cleaned_data.parquet")
 OUTPUT_PATH = Path("data/processed/sarima_ready_dataset.parquet")
 
 FORECAST_WINDOW = "15min"
+DURATION_CLIP_QUANTILE = 0.90
 
 REQUIRED_COLUMNS = [
     "instance_sn",
@@ -63,24 +58,24 @@ def prepare_time_series_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Prepare 15-minute forecasting windows.
 
-    Since the original trace uses relative time values, scheduled_time is converted
-    from timedelta into a timestamp-like index starting from a fixed reference date.
-
-    The dataset is aggregated by:
-        - 15-minute forecasting window
-        - job_type
-
     Metrics created:
-        - avg_cpu_request
-        - avg_memory_request
-        - avg_duration_minutes
+        - total_cpu_demand
+        - total_memory_demand
+        - median_duration_minutes
         - job_count
     """
 
     df = df.copy()
 
-    reference_start = pd.Timestamp("2025-01-01 00:00:00")
+    duration_upper_limit = df["duration_minutes"].quantile(
+        DURATION_CLIP_QUANTILE
+    )
 
+    df["duration_minutes_clipped"] = df["duration_minutes"].clip(
+        upper=duration_upper_limit
+    )
+
+    reference_start = pd.Timestamp("2025-01-01 00:00:00")
     df["forecast_timestamp"] = reference_start + df["scheduled_time"]
 
     df = df.sort_values("forecast_timestamp")
@@ -90,27 +85,29 @@ def prepare_time_series_data(df: pd.DataFrame) -> pd.DataFrame:
         .groupby("job_type")
         .resample(FORECAST_WINDOW)
         .agg(
-            avg_cpu_request=("cpu_request", "mean"),
-            avg_memory_request=("memory_request", "mean"),
-            avg_duration_minutes=("duration_minutes", "mean"),
+            total_cpu_demand=("cpu_request", "sum"),
+            total_memory_demand=("memory_request", "sum"),
+            median_duration_minutes=("duration_minutes_clipped", "median"),
             job_count=("instance_sn", "count"),
         )
         .reset_index()
     )
 
-    metric_columns = [
-        "avg_cpu_request",
-        "avg_memory_request",
-        "avg_duration_minutes",
+    demand_columns = [
+        "total_cpu_demand",
+        "total_memory_demand",
         "job_count",
     ]
 
-    aggregated_df[metric_columns] = (
-        aggregated_df.groupby("job_type")[metric_columns]
-        .transform(lambda group: group.interpolate(method="linear").ffill().bfill())
+    aggregated_df[demand_columns] = aggregated_df[demand_columns].fillna(0)
+
+    aggregated_df["median_duration_minutes"] = (
+        aggregated_df.groupby("job_type")["median_duration_minutes"]
+        .transform(lambda group: group.ffill().bfill())
+        .fillna(0)
     )
 
-    aggregated_df = aggregated_df.dropna().sort_values(
+    aggregated_df = aggregated_df.sort_values(
         ["job_type", "forecast_timestamp"]
     )
 
@@ -133,10 +130,8 @@ def main() -> None:
 
     print(f"SARIMA-ready dataset saved to: {OUTPUT_PATH}")
     print(f"Rows saved: {len(sarima_ready_df)}")
-
     print("\nColumns:")
     print(list(sarima_ready_df.columns))
-
     print("\nSample:")
     print(sarima_ready_df.head())
 

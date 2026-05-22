@@ -1,19 +1,13 @@
 """
 evaluate_model.py
 
-This script evaluates SARIMA forecasting accuracy for workload resource demand.
+This script evaluates SARIMA forecasting accuracy for workload demand.
 
 Expected input:
     data/processed/sarima_ready_dataset.parquet
 
 Expected output:
     results/forecasting/forecast_metrics.csv
-
-Evaluation approach:
-    - Evaluate each job_type separately.
-    - Evaluate CPU request, memory request, duration, and job count.
-    - Use a time-based train/test split.
-    - Calculate MAE, RMSE, and MAPE.
 """
 
 from pathlib import Path
@@ -31,9 +25,9 @@ TIME_COLUMN = "forecast_timestamp"
 GROUP_COLUMN = "job_type"
 
 TARGET_COLUMNS = [
-    "avg_cpu_request",
-    "avg_memory_request",
-    "avg_duration_minutes",
+    "total_cpu_demand",
+    "total_memory_demand",
+    "median_duration_minutes",
     "job_count",
 ]
 
@@ -54,25 +48,35 @@ def load_dataset(input_path: Path) -> pd.DataFrame:
     return pd.read_parquet(input_path)
 
 
-def calculate_mape(y_true, y_pred) -> float:
-    """Calculate Mean Absolute Percentage Error while avoiding division by zero."""
+def calculate_wape(y_true, y_pred) -> float:
+    """Calculate Weighted Absolute Percentage Error."""
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
 
-    non_zero_mask = y_true != 0
+    denominator = np.sum(np.abs(y_true))
 
-    if non_zero_mask.sum() == 0:
+    if denominator == 0:
         return np.nan
 
-    return (
-        np.mean(
-            np.abs(
-                (y_true[non_zero_mask] - y_pred[non_zero_mask])
-                / y_true[non_zero_mask]
-            )
-        )
-        * 100
-    )
+    return np.sum(np.abs(y_true - y_pred)) / denominator * 100
+
+
+def calculate_smape(y_true, y_pred) -> float:
+    """Calculate Symmetric Mean Absolute Percentage Error."""
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+
+    denominator = (np.abs(y_true) + np.abs(y_pred)) / 2
+
+    valid_mask = denominator != 0
+
+    if valid_mask.sum() == 0:
+        return np.nan
+
+    return np.mean(
+        np.abs(y_true[valid_mask] - y_pred[valid_mask])
+        / denominator[valid_mask]
+    ) * 100
 
 
 def evaluate_series(series: pd.Series, job_type: str, target_column: str) -> dict:
@@ -89,12 +93,15 @@ def evaluate_series(series: pd.Series, job_type: str, target_column: str) -> dic
             "metric": target_column,
             "MAE": np.nan,
             "RMSE": np.nan,
-            "MAPE": np.nan,
+            "WAPE": np.nan,
+            "SMAPE": np.nan,
             "status": "skipped_not_enough_data",
         }
 
+    transformed_train = np.log1p(train.clip(lower=0))
+
     model = SARIMAX(
-        train,
+        transformed_train,
         order=SARIMA_ORDER,
         seasonal_order=SEASONAL_ORDER,
         enforce_stationarity=False,
@@ -103,18 +110,32 @@ def evaluate_series(series: pd.Series, job_type: str, target_column: str) -> dic
 
     fitted_model = model.fit(disp=False)
 
-    predictions = fitted_model.forecast(steps=len(test))
+    transformed_predictions = fitted_model.get_forecast(
+        steps=len(test)
+    ).predicted_mean
+
+    predictions = np.expm1(np.array(transformed_predictions))
+    predictions = np.maximum(predictions, 0)
+
+    predictions = np.nan_to_num(
+        predictions,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
 
     mae = mean_absolute_error(test, predictions)
     rmse = np.sqrt(mean_squared_error(test, predictions))
-    mape = calculate_mape(test, predictions)
+    wape = calculate_wape(test, predictions)
+    smape = calculate_smape(test, predictions)
 
     return {
         "job_type": job_type,
         "metric": target_column,
         "MAE": round(mae, 4),
         "RMSE": round(rmse, 4),
-        "MAPE": round(mape, 4),
+        "WAPE": round(wape, 4),
+        "SMAPE": round(smape, 4),
         "status": "evaluated",
     }
 

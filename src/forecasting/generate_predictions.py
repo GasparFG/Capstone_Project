@@ -10,14 +10,14 @@ Expected input:
 Expected output:
     data/processed/forecast_predictions.parquet
 
-Forecasting approach:
-    - Generate future forecasts by job_type.
-    - Predict:
-        * CPU demand
-        * Memory demand
-        * Duration
-        * Job count
-    - Use 15-minute forecasting windows.
+Forecasting strategy:
+    Hybrid forecasting:
+        final_forecast =
+            0.7 * SARIMA forecast
+            + 0.3 * rolling historical mean
+
+    A minimum job-count floor is applied to avoid unrealistic zero-demand
+    forecasts in intermittent workload traces.
 """
 
 from pathlib import Path
@@ -36,13 +36,19 @@ TIME_COLUMN = "forecast_timestamp"
 GROUP_COLUMN = "job_type"
 
 TARGET_COLUMNS = [
-    "avg_cpu_request",
-    "avg_memory_request",
-    "avg_duration_minutes",
+    "total_cpu_demand",
+    "total_memory_demand",
+    "median_duration_minutes",
     "job_count",
 ]
 
-FORECAST_STEPS = 24
+FORECAST_STEPS = 96
+
+SARIMA_WEIGHT = 0.7
+ROLLING_MEAN_WEIGHT = 0.3
+
+ROLLING_WINDOW = 8
+MIN_ACTIVE_JOB_COUNT = 1
 
 
 def load_dataset(input_path: Path) -> pd.DataFrame:
@@ -79,22 +85,14 @@ def generate_future_timestamps(last_timestamp, periods):
     )
 
 
-def generate_forecast(model, steps: int) -> np.ndarray:
-    """
-    Generate forecast values safely.
+def generate_sarima_forecast(model, steps: int) -> np.ndarray:
+    """Generate forecast values using inverse log1p transformation."""
 
-    This function uses get_forecast().predicted_mean instead of forecast()
-    to improve compatibility with SARIMA model results.
-
-    It also replaces NaN and infinite values with 0 to avoid breaking
-    downstream optimization inputs.
-    """
-
-    predictions = model.get_forecast(
+    transformed_predictions = model.get_forecast(
         steps=steps
     ).predicted_mean
 
-    predictions = np.array(predictions)
+    predictions = np.expm1(np.array(transformed_predictions))
 
     predictions = np.maximum(predictions, 0)
 
@@ -106,6 +104,59 @@ def generate_forecast(model, steps: int) -> np.ndarray:
     )
 
     return predictions
+
+
+def generate_rolling_mean_forecast(
+    historical_series: pd.Series,
+    steps: int,
+) -> np.ndarray:
+    """Generate rolling mean baseline forecast."""
+
+    rolling_mean = historical_series.tail(ROLLING_WINDOW).mean()
+    rolling_mean = max(rolling_mean, 0)
+
+    return np.full(
+        shape=steps,
+        fill_value=rolling_mean,
+    )
+
+
+def combine_forecasts(
+    sarima_forecast: np.ndarray,
+    rolling_forecast: np.ndarray,
+) -> np.ndarray:
+    """Combine SARIMA and rolling mean forecasts."""
+
+    combined = (
+        SARIMA_WEIGHT * sarima_forecast
+        + ROLLING_MEAN_WEIGHT * rolling_forecast
+    )
+
+    combined = np.maximum(combined, 0)
+
+    return combined
+
+
+def apply_job_count_floor(
+    forecast_values: np.ndarray,
+    historical_series: pd.Series,
+) -> np.ndarray:
+    """
+    Apply a minimum job-count floor when recent historical demand exists.
+
+    This avoids unrealistic zero-job forecasts in intermittent workload traces.
+    """
+
+    recent_activity = historical_series.tail(ROLLING_WINDOW).sum()
+
+    if recent_activity > 0:
+        forecast_values = np.where(
+            forecast_values > 0,
+            np.maximum(forecast_values, MIN_ACTIVE_JOB_COUNT),
+            forecast_values,
+        )
+
+    return forecast_values
 
 
 def main() -> None:
@@ -144,18 +195,43 @@ def main() -> None:
 
             model = load_model(model_path)
 
-            predictions = generate_forecast(
+            historical_series = group_df[target_column]
+
+            sarima_predictions = generate_sarima_forecast(
                 model=model,
                 steps=FORECAST_STEPS,
             )
 
-            forecast_df[target_column] = predictions
+            rolling_predictions = generate_rolling_mean_forecast(
+                historical_series=historical_series,
+                steps=FORECAST_STEPS,
+            )
+
+            hybrid_predictions = combine_forecasts(
+                sarima_forecast=sarima_predictions,
+                rolling_forecast=rolling_predictions,
+            )
+
+            if target_column == "job_count":
+                hybrid_predictions = apply_job_count_floor(
+                    forecast_values=hybrid_predictions,
+                    historical_series=historical_series,
+                )
+
+            forecast_df[target_column] = hybrid_predictions
 
         forecast_results.append(forecast_df)
 
     final_forecast_df = pd.concat(
         forecast_results,
         ignore_index=True,
+    )
+
+    final_forecast_df["job_count"] = (
+        final_forecast_df["job_count"]
+        .round()
+        .clip(lower=0)
+        .astype(int)
     )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -166,10 +242,7 @@ def main() -> None:
     )
 
     print(final_forecast_df.head(10))
-
-    print(
-        f"\nForecast predictions saved to: {OUTPUT_PATH}"
-    )
+    print(f"\nForecast predictions saved to: {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
