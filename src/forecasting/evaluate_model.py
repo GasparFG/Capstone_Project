@@ -1,31 +1,44 @@
 """
 evaluate_model.py
 
-This script evaluates SARIMA forecasting accuracy for CPU and RAM utilization.
+This script evaluates SARIMA forecasting accuracy for workload resource demand.
 
 Expected input:
     data/processed/sarima_ready_dataset.parquet
 
-Expected outputs:
+Expected output:
     results/forecasting/forecast_metrics.csv
+
+Evaluation approach:
+    - Evaluate each job_type separately.
+    - Evaluate CPU request, memory request, duration, and job count.
+    - Use a time-based train/test split.
+    - Calculate MAE, RMSE, and MAPE.
 """
 
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-)
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 
 INPUT_PATH = Path("data/processed/sarima_ready_dataset.parquet")
 OUTPUT_PATH = Path("results/forecasting/forecast_metrics.csv")
 
+TIME_COLUMN = "forecast_timestamp"
+GROUP_COLUMN = "job_type"
+
+TARGET_COLUMNS = [
+    "avg_cpu_request",
+    "avg_memory_request",
+    "avg_duration_minutes",
+    "job_count",
+]
+
 SARIMA_ORDER = (1, 1, 1)
-SEASONAL_ORDER = (1, 1, 1, 24)
+SEASONAL_ORDER = (0, 0, 0, 0)
 
 TRAIN_SPLIT = 0.8
 
@@ -41,11 +54,15 @@ def load_dataset(input_path: Path) -> pd.DataFrame:
     return pd.read_parquet(input_path)
 
 
-def calculate_mape(y_true, y_pred):
-    """Calculate Mean Absolute Percentage Error."""
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
+def calculate_mape(y_true, y_pred) -> float:
+    """Calculate Mean Absolute Percentage Error while avoiding division by zero."""
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
 
     non_zero_mask = y_true != 0
+
+    if non_zero_mask.sum() == 0:
+        return np.nan
 
     return (
         np.mean(
@@ -58,13 +75,23 @@ def calculate_mape(y_true, y_pred):
     )
 
 
-def evaluate_series(series: pd.Series, metric_name: str) -> dict:
+def evaluate_series(series: pd.Series, job_type: str, target_column: str) -> dict:
     """Train/test evaluate one time series."""
 
     split_index = int(len(series) * TRAIN_SPLIT)
 
     train = series.iloc[:split_index]
     test = series.iloc[split_index:]
+
+    if len(train) < 10 or len(test) < 1:
+        return {
+            "job_type": job_type,
+            "metric": target_column,
+            "MAE": np.nan,
+            "RMSE": np.nan,
+            "MAPE": np.nan,
+            "status": "skipped_not_enough_data",
+        }
 
     model = SARIMAX(
         train,
@@ -83,32 +110,38 @@ def evaluate_series(series: pd.Series, metric_name: str) -> dict:
     mape = calculate_mape(test, predictions)
 
     return {
-        "metric": metric_name,
+        "job_type": job_type,
+        "metric": target_column,
         "MAE": round(mae, 4),
         "RMSE": round(rmse, 4),
         "MAPE": round(mape, 4),
+        "status": "evaluated",
     }
 
 
 def main() -> None:
-    """Evaluate CPU and RAM SARIMA forecasting accuracy."""
+    """Evaluate SARIMA models by job_type and metric."""
 
     df = load_dataset(INPUT_PATH)
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values("timestamp").set_index("timestamp")
+    df[TIME_COLUMN] = pd.to_datetime(df[TIME_COLUMN])
+    df = df.sort_values([GROUP_COLUMN, TIME_COLUMN])
 
-    cpu_results = evaluate_series(
-        df["cpu_utilization"],
-        "cpu_utilization",
-    )
+    results = []
 
-    ram_results = evaluate_series(
-        df["ram_utilization"],
-        "ram_utilization",
-    )
+    for job_type, group_df in df.groupby(GROUP_COLUMN):
+        group_df = group_df.set_index(TIME_COLUMN).sort_index()
 
-    metrics_df = pd.DataFrame([cpu_results, ram_results])
+        for target_column in TARGET_COLUMNS:
+            result = evaluate_series(
+                series=group_df[target_column],
+                job_type=job_type,
+                target_column=target_column,
+            )
+
+            results.append(result)
+
+    metrics_df = pd.DataFrame(results)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     metrics_df.to_csv(OUTPUT_PATH, index=False)

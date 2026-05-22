@@ -8,6 +8,12 @@ Expected input:
 
 Expected output:
     data/processed/optimization_input_dataset.parquet
+
+Optimization-ready approach:
+    - Use forecasted workload demand by job_type.
+    - Convert forecast timestamps into ordered forecast windows.
+    - Rename forecast columns into optimization-friendly names.
+    - Add priority and resource demand fields required by the optimization model.
 """
 
 from pathlib import Path
@@ -34,25 +40,73 @@ def build_optimization_dataset(df: pd.DataFrame) -> pd.DataFrame:
     """
     Build optimization-ready dataset.
 
-    This dataset will later be used by the optimization model
-    for workload scheduling and resource allocation decisions.
+    This dataset represents expected workload resource demand
+    by job type and 15-minute forecast window.
     """
 
     optimization_df = df.copy()
 
-    optimization_df["forecast_window"] = range(
-        1,
-        len(optimization_df) + 1,
+    optimization_df = optimization_df.sort_values(
+        ["job_type", "forecast_timestamp"]
     )
 
-    optimization_df["predicted_total_utilization"] = (
-        optimization_df["predicted_cpu_utilization"]
-        + optimization_df["predicted_ram_utilization"]
-    ) / 2
+    optimization_df["forecast_window"] = (
+        optimization_df.groupby("job_type").cumcount() + 1
+    )
 
-    optimization_df["workload_priority"] = "medium"
+    optimization_df = optimization_df.rename(
+        columns={
+            "avg_cpu_request": "predicted_cpu_request",
+            "avg_memory_request": "predicted_memory_request",
+            "avg_duration_minutes": "predicted_duration_minutes",
+            "job_count": "predicted_job_count",
+        }
+    )
 
-    optimization_df["server_group"] = "default_cluster"
+    optimization_df["predicted_job_count"] = (
+        optimization_df["predicted_job_count"]
+        .round()
+        .clip(lower=0)
+        .astype(int)
+    )
+
+    optimization_df["predicted_cpu_request"] = (
+        optimization_df["predicted_cpu_request"]
+        .clip(lower=0)
+    )
+
+    optimization_df["predicted_memory_request"] = (
+        optimization_df["predicted_memory_request"]
+        .clip(lower=0)
+    )
+
+    optimization_df["predicted_duration_minutes"] = (
+        optimization_df["predicted_duration_minutes"]
+        .clip(lower=0)
+    )
+
+    optimization_df["workload_priority"] = optimization_df["job_type"].map(
+        {
+            "interactive": "high",
+            "batch": "medium",
+        }
+    )
+
+    optimization_df["forecast_window_minutes"] = 15
+
+    optimization_df = optimization_df[
+        [
+            "job_type",
+            "forecast_window",
+            "forecast_timestamp",
+            "forecast_window_minutes",
+            "predicted_cpu_request",
+            "predicted_memory_request",
+            "predicted_duration_minutes",
+            "predicted_job_count",
+            "workload_priority",
+        ]
+    ]
 
     return optimization_df
 
@@ -73,7 +127,7 @@ def main() -> None:
 
     save_dataset(optimization_df, OUTPUT_PATH)
 
-    print(optimization_df.head())
+    print(optimization_df.head(10))
     print(f"\nOptimization dataset saved to: {OUTPUT_PATH}")
 
 

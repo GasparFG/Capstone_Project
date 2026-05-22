@@ -1,0 +1,9 @@
+job_type,metric,MAE,RMSE,MAPE,status
+batch,avg_cpu_request,20.7555,27.3187,86.5162,evaluated
+batch,avg_memory_request,104.467,136.211,84.9199,evaluated
+batch,avg_duration_minutes,1651.694,1753.6771,803.5325,evaluated
+batch,job_count,4.0889,5.1303,207.0354,evaluated
+interactive,avg_cpu_request,31.5362,39.1464,120.8663,evaluated
+interactive,avg_memory_request,163.8781,206.2559,125.5174,evaluated
+interactive,avg_duration_minutes,8.4106,11.0661,2064.7999,evaluated
+interactive,job_count,2.4161,8.089,71.6529,evaluated

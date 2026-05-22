@@ -1,14 +1,18 @@
 """
 train_model.py
 
-This script trains SARIMA models for CPU and RAM utilization.
+This script trains SARIMA models for workload resource forecasting.
 
 Expected input:
     data/processed/sarima_ready_dataset.parquet
 
 Expected outputs:
-    models/forecasting/cpu_sarima_model.pkl
-    models/forecasting/ram_sarima_model.pkl
+    models/forecasting/{job_type}_{metric}_sarima_model.pkl
+
+Forecasting approach:
+    - Train separate SARIMA models by job_type.
+    - Forecast CPU request, memory request, duration, and job count.
+    - Use 15-minute forecasting windows.
 """
 
 from pathlib import Path
@@ -21,11 +25,18 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 INPUT_PATH = Path("data/processed/sarima_ready_dataset.parquet")
 MODEL_DIR = Path("models/forecasting")
 
-CPU_MODEL_PATH = MODEL_DIR / "cpu_sarima_model.pkl"
-RAM_MODEL_PATH = MODEL_DIR / "ram_sarima_model.pkl"
+TIME_COLUMN = "forecast_timestamp"
+GROUP_COLUMN = "job_type"
+
+TARGET_COLUMNS = [
+    "avg_cpu_request",
+    "avg_memory_request",
+    "avg_duration_minutes",
+    "job_count",
+]
 
 SARIMA_ORDER = (1, 1, 1)
-SEASONAL_ORDER = (1, 1, 1, 24)
+SEASONAL_ORDER = (0, 0, 0, 0)
 
 
 def load_dataset(input_path: Path) -> pd.DataFrame:
@@ -62,20 +73,31 @@ def save_model(model, output_path: Path) -> None:
 
 
 def main() -> None:
-    """Train SARIMA models for CPU and RAM utilization."""
+    """Train SARIMA models by job_type and forecasting metric."""
     df = load_dataset(INPUT_PATH)
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values("timestamp").set_index("timestamp")
+    df[TIME_COLUMN] = pd.to_datetime(df[TIME_COLUMN])
+    df = df.sort_values([GROUP_COLUMN, TIME_COLUMN])
 
-    cpu_model = train_sarima_model(df["cpu_utilization"])
-    ram_model = train_sarima_model(df["ram_utilization"])
+    for job_type, group_df in df.groupby(GROUP_COLUMN):
+        group_df = group_df.set_index(TIME_COLUMN).sort_index()
 
-    save_model(cpu_model, CPU_MODEL_PATH)
-    save_model(ram_model, RAM_MODEL_PATH)
+        for target_column in TARGET_COLUMNS:
+            series = group_df[target_column]
 
-    print(f"CPU SARIMA model saved to: {CPU_MODEL_PATH}")
-    print(f"RAM SARIMA model saved to: {RAM_MODEL_PATH}")
+            if series.dropna().shape[0] < 10:
+                print(
+                    f"Skipping {job_type} - {target_column}: "
+                    "not enough observations."
+                )
+                continue
+
+            fitted_model = train_sarima_model(series)
+
+            model_path = MODEL_DIR / f"{job_type}_{target_column}_sarima_model.pkl"
+            save_model(fitted_model, model_path)
+
+            print(f"Saved model: {model_path}")
 
 
 if __name__ == "__main__":
