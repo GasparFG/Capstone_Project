@@ -1,11 +1,3 @@
-job_type,metric,MAE,RMSE,WAPE,SMAPE,accuracy,precision,recall,f1_score,status
-batch,activity_classification,,,,,0.6014,0.6031,0.8333,0.6997,evaluated
-batch,total_cpu_demand,176.9489,285.423,158.6409,137.1993,,,,,evaluated
-batch,total_memory_demand,894.7735,1436.7577,160.0201,137.4482,,,,,evaluated
-batch,median_duration_minutes,831.5789,983.323,138.0017,129.9843,,,,,evaluated
-batch,job_count,2.7905,4.4589,157.0342,131.9277,,,,,evaluated
-interactive,activity_classification,,,,,0.5354,0.5325,0.9904,0.6927,evaluated
-interactive,total_cpu_demand,287.1145,438.8975,286.1318,157.9756,,,,,evaluated
-interactive,total_memory_demand,1427.3767,2191.9841,280.8033,157.7189,,,,,evaluated
-interactive,median_duration_minutes,10.8629,13.8465,95.2819,97.3552,,,,,evaluated
-interactive,job_count,4.8182,8.257,258.0703,150.1076,,,,,evaluated
+job_type,evaluation_focus,accuracy,precision,recall,f1_score,activity_threshold,status
+batch,activity_classification,0.6014,0.6031,0.8333,0.6997,0.35,evaluated
+interactive,activity_classification,0.5354,0.5325,0.9904,0.6927,0.35,evaluated
