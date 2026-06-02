@@ -37,6 +37,20 @@ def clean_data(input_path, output_path):
     # Remove duplicates
     df_jobs = df_jobs.drop_duplicates()
 
+    # Remove outliers in duration_minutes using IQR
+    rows_before = len(df_jobs)
+
+    Q1 = df_jobs["duration_minutes"].quantile(0.25) 
+    Q3 = df_jobs["duration_minutes"].quantile(0.75)
+    IQR = Q3 - Q1 
+
+    lower_bound = Q1 - 1.5 * IQR 
+    upper_bound = Q3 + 1.5 * IQR 
+
+    df_jobs = df_jobs[(df_jobs["duration_minutes"] >= lower_bound) & (df_jobs["duration_minutes"] <= upper_bound)].copy()
+
+    rows_after = len(df_jobs)
+    
     #Save clean dataset
     df_jobs.to_parquet(output_path, index=False)
 
@@ -45,6 +59,7 @@ def clean_data(input_path, output_path):
     print(f"Shape: {df_jobs.shape}")
     print(f"\n=== dtypes ===\n{df_jobs.dtypes}")
     print(f"\n=== null counts ===\n{df_jobs.isnull().sum()}")
+    print(f"Removed {rows_before - rows_after} outliers "f"({100 * (rows_before - rows_after) / rows_before:.2f}%)")
     print(f"\n=== job_type counts ===\n{df_jobs['job_type'].value_counts()}")
     print(f"\n=== cpu_usage / mem_usage stats ===\n{df_jobs[['cpu_request', 'memory_request']].describe()}")
     print(f"\n=== sample (5 batch, 5 interactive) ===")
