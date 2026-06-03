@@ -21,6 +21,7 @@ def clean_data(input_path, output_path):
     df_jobs = df_jobs[(df_jobs["deletion_time"] >= df_jobs["scheduled_time"]) | (df_jobs["deletion_time"].isna())]
 
     # Create duration feature
+    df_jobs["duration_seconds"] = (df_jobs["deletion_time"] - df_jobs["scheduled_time"]).dt.total_seconds()
     df_jobs["duration_minutes"] = ((df_jobs["deletion_time"] - df_jobs["scheduled_time"]).dt.total_seconds() / 60)
 
     # Drop rows where duration is null (deletion_time was null) or zero
