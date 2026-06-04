@@ -35,6 +35,7 @@ def clean_data(input_path, output_path):
     df_jobs = df_jobs[df_jobs["duration_minutes"] > 0]
     after_zero_duration = len(df_jobs)
 
+
     # Categorizing job type (Longer than 60 minutes = Batch. Shorter or equal than 60 minutes = Interactive)
     df_jobs["job_type"] = np.where(df_jobs["duration_minutes"] <= 60,"interactive","batch")
 
@@ -60,6 +61,10 @@ def clean_data(input_path, output_path):
 
     after_outliers = len(df_jobs)
     
+    #Remove jobs over 24 hours
+    df_jobs = df_jobs[df_jobs["duration_minutes"] < 1440]
+    after_24h_removal = len(df_jobs)
+
     #Save clean dataset
     df_jobs.to_parquet(output_path, index=False)
     
@@ -107,6 +112,7 @@ def clean_data(input_path, output_path):
     print(f"After filtering cpu_and_memory_request > 0: {after_cpu_memory:,}")
     print(f"After removing duplicates: {after_duplicates:,}")
     print(f"After removing IQR outliers: {after_outliers:,}")
+    print(f"After removing jobs over 24h: {after_24h_removal:,}")
     print(f"Shape: {df_jobs.shape}")
     print(f"\n=== dtypes ===\n{df_jobs.dtypes}")
     print(f"\n=== null counts ===\n{df_jobs.isnull().sum()}")
