@@ -1,0 +1,30 @@
+section,metric,value
+row_counts,historical_rows_used,10610
+row_counts,forecast_rows_generated,248
+time,forecast_horizon_seconds,86400
+time,min_scheduled_seconds,1.0
+time,max_scheduled_seconds,86382.26
+time,scheduled_seconds_monotonic,True
+job_type_distribution,counts,"{'batch': 173, 'interactive': 75}"
+gpu_request_distribution,counts,"{0: 186, 1: 62}"
+critical_distribution,counts,"{0: 158, 1: 90}"
+replica_distribution,counts,"{1: 158, 2: 90}"
+cpu_request,historical_min,2
+cpu_request,historical_max,192
+cpu_request,forecast_min,8.0
+cpu_request,forecast_max,192.0
+cpu_request,within_historical_range,True
+memory_request,historical_min,16.0
+memory_request,historical_max,1000.0
+memory_request,forecast_min,16.0
+memory_request,forecast_max,960.0
+memory_request,within_historical_range,True
+duration_seconds,historical_min,1.0
+duration_seconds,historical_max,167843.0
+duration_seconds,forecast_min,7.0
+duration_seconds,forecast_max,36111.84
+duration_seconds,all_positive,True
+app_name,unique_forecast_apps,59
+role,unique_forecast_roles,2
+schema,missing_required_columns,[]
+schema,schema_complete,True
