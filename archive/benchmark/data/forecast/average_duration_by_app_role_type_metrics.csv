@@ -1,0 +1,2 @@
+model,target,grouping,min_group_count,mae,rmse,r2,test_rows,predictions_from_group_average,predictions_from_global_average,rows_used,train_rows,global_average_duration_minutes,groups_available
+average_duration_by_app_name_role_job_type,duration_minutes,app_name + role + job_type,5,292.39652563178447,482.1659171138984,0.3124951489172527,6490,6398,92,32448,25958,359.99484195552947,323

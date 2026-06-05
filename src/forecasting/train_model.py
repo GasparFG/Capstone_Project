@@ -1,229 +1,377 @@
 """
 train_model.py
+==============
+Entrena los modelos XGBoost de forecasting usando el dataset en SEGUNDOS.
 
-Two-stage workload forecasting model.
+Modelos entrenados:
+  REGRESIÓN (valores continuos):
+  - interarrival_seconds  → segundos hasta el siguiente job
+  - duration_seconds      → duración esperada del job
 
-Stage 1:
-    Activity classifier predicts whether a future 15-minute window will have workload activity.
+  CLASIFICACIÓN — valores discretos (pocos valores únicos):
+  - cpu_request           → 9 valores posibles  (2, 8, 12, 16, 48, 64, 96, 192...)
+  - memory_request        → 25 valores posibles
+  - role_encoded          → 2 clases (CN / HN)
+  - app_name_encoded      → 151 apps
+  - job_type_encoded      → 2 clases (batch / interactive)
 
-Stage 2:
-    Demand regressors estimate CPU demand, memory demand, duration, and job count
-    for active workload windows.
+Salidas:
+  models/forecast_seconds/{target}_model.joblib       ← regresores
+  models/forecast_seconds/{target}_classifier.joblib  ← clasificadores (cpu, memory, descriptores)
+  models/forecast_seconds/model_metadata.json
+  outputs/forecast_seconds/regression_metrics.csv
+  outputs/forecast_seconds/classification_metrics.csv
+  outputs/forecast_seconds/test_predictions.csv
 
-Expected input:
-    data/processed/sarima_ready_dataset.parquet
-
-Expected outputs:
-    models/forecasting/{job_type}_activity_classifier.pkl
-    models/forecasting/{job_type}_{metric}_demand_regressor.pkl
-    models/forecasting/{job_type}_forecast_metadata.pkl
+Ejecutar desde src/forecasting/:
+    python train_model.py
 """
 
+import sys
 from pathlib import Path
-import pickle
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import json
+import joblib
+import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
+from sklearn.metrics import (
+    mean_absolute_error, mean_squared_error, r2_score,
+    accuracy_score, f1_score, precision_score, recall_score,
+)
+from sklearn.preprocessing import LabelEncoder
 
-INPUT_PATH = Path("data/processed/sarima_ready_dataset.parquet")
-MODEL_DIR = Path("models/forecasting")
+try:
+    from xgboost import XGBRegressor, XGBClassifier
+except ImportError as e:
+    raise ImportError("XGBoost no está instalado. Ejecuta: pip install xgboost") from e
 
-TIME_COLUMN = "forecast_timestamp"
-GROUP_COLUMN = "job_type"
+from config_seconds import (
+    PREPARED_DATA, MODELS_DIR, OUTPUTS_DIR,
+    TEST_SIZE, RANDOM_STATE,
+    NUMERIC_TARGETS, DISCRETE_TARGETS, DESCRIPTOR_TARGETS,
+)
 
-TARGET_COLUMNS = [
-    "total_cpu_demand",
-    "total_memory_demand",
-    "median_duration_minutes",
-    "job_count",
+# ── Columnas que NO entran como features ─────────────────────────────────────
+DROP_ALWAYS = [
+    "instance_sn", "creation_time", "deletion_time", "gpu_request",
+    "scheduled_time", "scheduled_seconds", "arrival_order",
+    "role", "app_name", "job_type",
+    "duration_minutes",
+    "interarrival_seconds", "interarrival_bucket",
+    "cpu_request", "memory_request", "duration_seconds",
+    "interarrival_seconds_log", "cpu_request_log", "memory_request_log", "duration_seconds_log",
 ]
-
-LAG_COLUMNS = TARGET_COLUMNS
-
-LAGS = [1, 2, 4, 8]
-ROLLING_WINDOWS = [4, 8]
-
-ACTIVITY_THRESHOLD = 0.35
+CURRENT_DESCRIPTORS = ["role_encoded", "app_name_encoded", "job_type_encoded"]
 
 
-def load_dataset(input_path: Path) -> pd.DataFrame:
-    """Load forecasting-ready dataset."""
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"Input file not found: {input_path}. "
-            "Run prepare_forecast_data.py first."
+# ── Métricas ─────────────────────────────────────────────────────────────────
+
+def mape(y_true, y_pred):
+    y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+    mask = y_true != 0
+    return np.nan if mask.sum() == 0 else np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+
+
+def smape(y_true, y_pred):
+    y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+    denom = np.abs(y_true) + np.abs(y_pred)
+    mask = denom != 0
+    return np.nan if mask.sum() == 0 else np.mean(2 * np.abs(y_pred[mask] - y_true[mask]) / denom[mask]) * 100
+
+
+def reg_metrics(y_true, y_pred, target, model_name):
+    mse = mean_squared_error(y_true, y_pred)
+    log_r2 = r2_score(np.log1p(y_true), np.log1p(np.maximum(y_pred, 0)))
+    return {
+        "model": model_name, "target": target,
+        "MSE": mse, "RMSE": np.sqrt(mse),
+        "MAE": mean_absolute_error(y_true, y_pred),
+        "MAPE": mape(y_true, y_pred), "SMAPE": smape(y_true, y_pred),
+        "R2": r2_score(y_true, y_pred), "LOG_R2": log_r2,
+    }
+
+
+def clean(X: pd.DataFrame) -> pd.DataFrame:
+    return X.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0)
+
+
+# ── Selección de feature columns ─────────────────────────────────────────────
+
+def past_feature_columns(df: pd.DataFrame):
+    """Features que NO usan información del job actual (solo pasado)."""
+    return [c for c in df.columns if c not in DROP_ALWAYS and c not in CURRENT_DESCRIPTORS]
+
+
+def capacity_feature_columns(df: pd.DataFrame):
+    """Features para predecir CPU/memory/duration — incluye descriptores del job actual."""
+    past = past_feature_columns(df)
+    caps = [c for c in CURRENT_DESCRIPTORS if c in df.columns]
+    return list(dict.fromkeys(past + caps))
+
+
+# ── Configuración de hiperparámetros XGBoost ─────────────────────────────────
+
+XGB_PARAMS = {
+    "cpu_request": [
+        ("xgb_cpu_balanced", dict(
+            n_estimators=800, learning_rate=0.03, max_depth=5,
+            min_child_weight=2, subsample=0.9, colsample_bytree=0.9,
+            reg_lambda=2.5, reg_alpha=0.1,
+        )),
+        ("xgb_cpu_regularized", dict(
+            n_estimators=700, learning_rate=0.03, max_depth=4,
+            min_child_weight=4, subsample=0.85, colsample_bytree=0.85,
+            reg_lambda=5, reg_alpha=0.5,
+        )),
+    ],
+    "memory_request": [
+        ("xgb_memory_balanced", dict(
+            n_estimators=800, learning_rate=0.03, max_depth=5,
+            min_child_weight=2, subsample=0.9, colsample_bytree=0.9,
+            reg_lambda=2.5, reg_alpha=0.1,
+        )),
+        ("xgb_memory_regularized", dict(
+            n_estimators=700, learning_rate=0.03, max_depth=4,
+            min_child_weight=4, subsample=0.85, colsample_bytree=0.85,
+            reg_lambda=5, reg_alpha=0.5,
+        )),
+    ],
+    "duration_seconds": [
+        ("xgb_duration_regularized", dict(
+            n_estimators=600, learning_rate=0.03, max_depth=3,
+            min_child_weight=6, subsample=0.85, colsample_bytree=0.85,
+            reg_lambda=8, reg_alpha=1,
+        )),
+        ("xgb_duration_balanced", dict(
+            n_estimators=800, learning_rate=0.025, max_depth=4,
+            min_child_weight=4, subsample=0.9, colsample_bytree=0.9,
+            reg_lambda=5, reg_alpha=0.5,
+        )),
+    ],
+}
+
+
+# ── Entrenamiento de regresores ───────────────────────────────────────────────
+
+def select_best_regressor(target, X_train, X_test, train_df, test_df):
+    """Entrena los candidatos para `target` y devuelve el mejor por RMSE."""
+    y_train = np.log1p(train_df[target])
+    y_test  = test_df[target].values
+    best = None
+
+    for name, params in XGB_PARAMS[target]:
+        print(f"  Candidato: {name}")
+        model = XGBRegressor(
+            objective="reg:squarederror",
+            random_state=RANDOM_STATE,
+            n_jobs=-1,
+            tree_method="hist",
+            **params,
         )
+        model.fit(X_train, y_train)
+        pred = np.expm1(model.predict(X_test)).clip(0)
+        metrics = reg_metrics(y_test, pred, target, name)
+        result = {"name": name, "model": model, "pred": pred, "metrics": metrics}
+        if best is None or metrics["RMSE"] < best["metrics"]["RMSE"]:
+            best = result
 
-    return pd.read_parquet(input_path)
-
-
-def create_features(group_df: pd.DataFrame) -> pd.DataFrame:
-    """Create temporal, lag, rolling mean, and activity features."""
-
-    df = group_df.copy()
-
-    df[TIME_COLUMN] = pd.to_datetime(df[TIME_COLUMN])
-    df = df.sort_values(TIME_COLUMN)
-
-    df["hour"] = df[TIME_COLUMN].dt.hour
-    df["minute"] = df[TIME_COLUMN].dt.minute
-    df["day"] = df[TIME_COLUMN].dt.day
-    df["day_of_week"] = df[TIME_COLUMN].dt.dayofweek
-
-    df["is_active_window"] = (df["job_count"] > 0).astype(int)
-
-    for column in LAG_COLUMNS:
-        for lag in LAGS:
-            df[f"{column}_lag_{lag}"] = df[column].shift(lag)
-
-        for window in ROLLING_WINDOWS:
-            df[f"{column}_rolling_mean_{window}"] = (
-                df[column]
-                .shift(1)
-                .rolling(window=window)
-                .mean()
-            )
-
-    df = df.dropna().reset_index(drop=True)
-
-    return df
+    print(f"  → Mejor: {best['name']}  RMSE={best['metrics']['RMSE']:.2f}  R2={best['metrics']['R2']:.4f}  LOG_R2={best['metrics']['LOG_R2']:.4f}")
+    return best
 
 
-def get_feature_columns(df: pd.DataFrame) -> list[str]:
-    """Return feature columns used for model training."""
+# ── Entrenamiento de clasificadores ──────────────────────────────────────────
 
-    excluded_columns = [
-        TIME_COLUMN,
-        GROUP_COLUMN,
-        "is_active_window",
-        *TARGET_COLUMNS,
-    ]
+def train_classifier(target, X_train, X_test, train_df, test_df):
+    # Castear a string para que sklearn no confunda floats discretos (320.0, 64.0)
+    # con variables continuas. Aplica tanto a encodings enteros como a valores float.
+    y_train = train_df[target].astype(str)
+    y_test  = test_df[target].astype(str)
+    n_classes = int(y_train.nunique())
 
-    return [column for column in df.columns if column not in excluded_columns]
+    if n_classes < 2:
+        pred = np.full(len(y_test), y_train.iloc[0])
+        return None, None, _cls_metrics(y_test, pred, target, "constant"), pred
 
+    # LabelEncoder remapea las clases a 0..n-1 contiguas.
+    # Necesario cuando el split temporal deja huecos en los códigos de entrenamiento
+    # (ej: app_name_encoded=[0,1,3,4,...] — XGBoost exige [0,1,2,3,...]).
+    le = LabelEncoder()
+    y_train_enc = le.fit_transform(y_train)
 
-def train_activity_classifier(
-    X: pd.DataFrame,
-    y: pd.Series,
-) -> RandomForestClassifier:
-    """Train active/inactive workload window classifier."""
+    # Test: clases vistas en train → encodear; no vistas → -1 (se excluyen de métricas)
+    known_mask  = y_test.isin(le.classes_)
+    y_test_enc  = np.full(len(y_test), -1, dtype=int)
+    y_test_enc[known_mask.values] = le.transform(y_test[known_mask])
 
-    model = RandomForestClassifier(
-        n_estimators=400,
-        max_depth=6,
-        min_samples_leaf=8,
-        random_state=42,
-        class_weight="balanced",
+    n_enc      = len(le.classes_)
+    objective  = "multi:softprob" if n_enc > 2 else "binary:logistic"
+    extra      = {"num_class": n_enc} if n_enc > 2 else {}
+    eval_metric= "mlogloss" if n_enc > 2 else "logloss"
+
+    model = XGBClassifier(
+        objective=objective,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+        tree_method="hist",
+        eval_metric=eval_metric,
+        n_estimators=500,
+        learning_rate=0.03,
+        max_depth=4,
+        min_child_weight=3,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=3,
+        reg_alpha=0.2,
+        **extra,
     )
+    model.fit(X_train, y_train_enc)
 
-    model.fit(X, y)
+    # Predicción → inverse_transform para recuperar el código original de app/role/job_type
+    pred_enc = model.predict(X_test)
+    pred     = le.inverse_transform(pred_enc.astype(int))
 
-    return model
-
-
-def train_demand_regressor(
-    X: pd.DataFrame,
-    y: pd.Series,
-) -> RandomForestRegressor:
-    """Train conservative demand regressor to reduce extreme spikes."""
-
-    model = RandomForestRegressor(
-        n_estimators=400,
-        max_depth=5,
-        min_samples_leaf=10,
-        random_state=42,
+    # Métricas solo sobre clases conocidas en test
+    valid = known_mask.values
+    metrics = _cls_metrics(
+        y_test[valid], pred[valid], target, f"xgb_{target}_classifier"
     )
-
-    model.fit(X, y)
-
-    return model
+    return model, le, metrics, pred
 
 
-def save_pickle(object_to_save, output_path: Path) -> None:
-    """Save model or metadata as pickle file."""
+def _cls_metrics(y_true, y_pred, target, model_name):
+    return {
+        "model": model_name, "target": target,
+        "accuracy":         accuracy_score(y_true, y_pred),
+        "precision_macro":  precision_score(y_true, y_pred, average="macro", zero_division=0),
+        "recall_macro":     recall_score(y_true, y_pred, average="macro", zero_division=0),
+        "f1_macro":         f1_score(y_true, y_pred, average="macro", zero_division=0),
+    }
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "wb") as file:
-        pickle.dump(object_to_save, file)
+# ── Pipeline principal ────────────────────────────────────────────────────────
 
+def train_model() -> None:
+    print(f"Cargando dataset preparado: {PREPARED_DATA}")
+    data = pd.read_parquet(PREPARED_DATA)
+    print(f"Shape: {data.shape}")
 
-def main() -> None:
-    """Train two-stage forecasting models by workload type."""
+    # Split temporal (80% train / 20% test)
+    split = int(len(data) * (1 - TEST_SIZE))
+    train_df = data.iloc[:split].copy()
+    test_df  = data.iloc[split:].copy()
+    print(f"Train: {len(train_df)} jobs  |  Test: {len(test_df)} jobs")
 
-    df = load_dataset(INPUT_PATH)
+    past_cols = past_feature_columns(data)
+    cap_cols  = capacity_feature_columns(data)
+    print(f"Features (past-only): {len(past_cols)}  |  Features (capacity): {len(cap_cols)}")
 
-    df[TIME_COLUMN] = pd.to_datetime(df[TIME_COLUMN])
-    df = df.sort_values([GROUP_COLUMN, TIME_COLUMN])
+    X_train_past = clean(train_df[past_cols])
+    X_test_past  = clean(test_df[past_cols])
+    X_train_cap  = clean(train_df[cap_cols])
+    X_test_cap   = clean(test_df[cap_cols])
 
-    for job_type, group_df in df.groupby(GROUP_COLUMN):
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        print(f"\nTraining two-stage forecasting models for: {job_type}")
+    # helper para guardar clasificadores
+    def save_classifier(target, X_tr, X_te, label=""):
+        print(f"\n[{target}]{label}")
+        model, le, metrics, pred = train_classifier(target, X_tr, X_te, train_df, test_df)
+        if model is not None:
+            joblib.dump({"model": model, "label_encoder": le},
+                        MODELS_DIR / f"{target}_classifier.joblib")
+        return metrics, pred
 
-        feature_df = create_features(group_df)
+    # ── Clasificadores de descriptores (role, app_name, job_type) ─────────────
+    print("\n── Clasificadores de descriptores ──")
+    cls_rows = {}
+    for target in [t for t in DESCRIPTOR_TARGETS if t in data.columns]:
+        metrics, pred = save_classifier(target, X_train_past, X_test_past)
+        cls_rows[target] = {"metrics": metrics, "pred": pred}
 
-        if len(feature_df) < 20:
-            print(f"Skipping {job_type}: not enough observations.")
-            continue
-
-        feature_columns = get_feature_columns(feature_df)
-
-        X = feature_df[feature_columns]
-        y_activity = feature_df["is_active_window"]
-
-        activity_model = train_activity_classifier(
-            X=X,
-            y=y_activity,
+    # ── Clasificadores de recursos discretos (cpu, memory) ───────────────────
+    print("\n── Clasificadores de recursos discretos ──")
+    for target in [t for t in DISCRETE_TARGETS if t in data.columns]:
+        # interarrival_bucket: predice CUÁNDO llega el siguiente job
+        #   → solo features pasadas (aún no conocemos nada del job futuro)
+        # cpu_request / memory_request: predice QUÉ recursos necesita el job
+        #   → capacity features (incluye descriptores role/app/job_type del job actual)
+        use_past = (target == "interarrival_bucket")
+        X_tr = X_train_past if use_past else X_train_cap
+        X_te = X_test_past  if use_past else X_test_cap
+        metrics, pred = save_classifier(
+            target, X_tr, X_te,
+            label=f"  ({data[target].nunique()} valores únicos)"
         )
+        cls_rows[target] = {"metrics": metrics, "pred": pred}
 
-        activity_model_path = MODEL_DIR / f"{job_type}_activity_classifier.pkl"
-        save_pickle(activity_model, activity_model_path)
+    # ── Regresores continuos (interarrival, duration) ─────────────────────────
+    print("\n── Regresores continuos ──")
+    reg_rows = []
+    pred_df  = test_df[["arrival_order", "scheduled_seconds", "job_type", "role", "app_name"]].copy()
 
-        print(f"Saved activity classifier: {activity_model_path}")
+    for target in NUMERIC_TARGETS:
+        print(f"\n[{target}]")
+        # duration usa features de capacidad (incluye descriptores del job)
+        X_tr = X_train_cap
+        X_te = X_test_cap
+        best = select_best_regressor(target, X_tr, X_te, train_df, test_df)
+        reg_rows.append(best["metrics"])
+        pred_df[f"{target}_actual"]         = test_df[target].values
+        pred_df[f"{target}_predicted"]      = best["pred"]
+        pred_df[f"{target}_selected_model"] = best["name"]
+        joblib.dump(best["model"], MODELS_DIR / f"{target}_model.joblib")
 
-        active_df = feature_df[feature_df["is_active_window"] == 1].copy()
+    # ── Guardar métricas ──────────────────────────────────────────────────────
+    reg_df = pd.DataFrame(reg_rows)
+    cls_df = pd.DataFrame([v["metrics"] for v in cls_rows.values()])
+    reg_df.to_csv(OUTPUTS_DIR / "regression_metrics.csv", index=False)
+    cls_df.to_csv(OUTPUTS_DIR / "classification_metrics.csv", index=False)
+    pred_df.to_csv(OUTPUTS_DIR / "test_predictions.csv", index=False)
+    pd.DataFrame({"feature": past_cols}).to_csv(OUTPUTS_DIR / "past_feature_columns.csv", index=False)
+    pd.DataFrame({"feature": cap_cols}).to_csv(OUTPUTS_DIR / "capacity_feature_columns.csv", index=False)
 
-        if len(active_df) < 10:
-            print(
-                f"Skipping demand regressors for {job_type}: "
-                "not enough active windows."
-            )
-            continue
+    # ── Guardar distribución de descriptores ─────────────────────────────────
+    desc_cols = [c for c in ["role", "app_name", "job_type"] if c in data.columns]
+    dist = (
+        data[desc_cols].groupby(desc_cols, dropna=False)
+        .size().reset_index(name="count")
+    )
+    dist["probability"] = dist["count"] / dist["count"].sum()
+    dist.to_csv(MODELS_DIR / "descriptor_distribution.csv", index=False)
 
-        X_active = active_df[feature_columns]
+    # ── Guardar metadata ──────────────────────────────────────────────────────
+    metadata = {
+        "past_feature_columns":     past_cols,
+        "capacity_feature_columns": cap_cols,
+        "numeric_targets":          NUMERIC_TARGETS,
+        "discrete_targets":         [t for t in DISCRETE_TARGETS if t in data.columns],
+        "descriptor_targets":       [t for t in DESCRIPTOR_TARGETS if t in data.columns],
+        "split_index":              split,
+        "time_unit":                "seconds",
+        "note": (
+            "interarrival_seconds y duration_seconds → regresión (valores continuos). "
+            "cpu_request y memory_request → clasificación (valores discretos). "
+            "role_encoded, app_name_encoded, job_type_encoded → clasificación."
+        ),
+    }
+    with open(MODELS_DIR / "model_metadata.json", "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=4)
 
-        for target_column in TARGET_COLUMNS:
-
-            y_target = active_df[target_column].clip(lower=0)
-
-            demand_model = train_demand_regressor(
-                X=X_active,
-                y=y_target,
-            )
-
-            demand_model_path = (
-                MODEL_DIR
-                / f"{job_type}_{target_column}_demand_regressor.pkl"
-            )
-
-            save_pickle(demand_model, demand_model_path)
-
-            print(f"Saved demand regressor: {demand_model_path}")
-
-        metadata = {
-            "feature_columns": feature_columns,
-            "lags": LAGS,
-            "rolling_windows": ROLLING_WINDOWS,
-            "target_columns": TARGET_COLUMNS,
-            "activity_threshold": ACTIVITY_THRESHOLD,
-        }
-
-        metadata_path = MODEL_DIR / f"{job_type}_forecast_metadata.pkl"
-        save_pickle(metadata, metadata_path)
-
-        print(f"Saved metadata: {metadata_path}")
+    # ── Resumen final ─────────────────────────────────────────────────────────
+    print("\n══════════════════════════════════════════════")
+    print("MÉTRICAS DE REGRESIÓN — valores continuos")
+    print("══════════════════════════════════════════════")
+    print(reg_df[["target", "RMSE", "MAE", "MAPE", "R2", "LOG_R2"]].to_string(index=False))
+    print("\n══════════════════════════════════════════════")
+    print("MÉTRICAS DE CLASIFICACIÓN — valores discretos + descriptores")
+    print("══════════════════════════════════════════════")
+    print(cls_df[["target", "accuracy", "f1_macro"]].to_string(index=False))
+    print(f"\nModelos guardados en: {MODELS_DIR}")
+    print(f"Métricas guardadas en: {OUTPUTS_DIR}")
 
 
 if __name__ == "__main__":
-    main()
+    train_model()

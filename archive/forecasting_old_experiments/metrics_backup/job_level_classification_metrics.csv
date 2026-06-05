@@ -1,0 +1,2 @@
+model,target,accuracy,precision_macro,recall_macro,f1_macro,note
+JobLevel_XGBoost,job_type,1.0,1.0,1.0,1.0,Binary classification

@@ -1,0 +1,6 @@
+Decision Area,Selected Option,Reason
+Final selected forecasting approach,Job-Level Workload Forecasting using Historical Profiles,"It directly produces one row per predicted job with required CPU, required memory, expected duration, job type, and arrival offset."
+Why not final window forecasting?,Window models kept as benchmarks only,"Window models predict aggregate demand per time interval, but the optimization phase requires job-level capacity requirements."
+Primary variables for optimization,required_cpu and required_memory,These represent the core resource capacity requirements used by the optimization model.
+Duration interpretation,Expected duration estimate,"Duration is more variable and affected by large outliers, so it should not be presented as an exact forecast."
+Interarrival interpretation,Timing reference within the planning horizon,Interarrival time is used to place predicted jobs in the next-day horizon rather than as a highly precise arrival-time forecast.

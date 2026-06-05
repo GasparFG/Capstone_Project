@@ -1,0 +1,2 @@
+model,target,features,mae,rmse,r2,intercept,cpu_coefficient,memory_coefficient,rows_used,train_rows,test_rows
+linear_regression_baseline,duration_minutes,"cpu_request, memory_request",411.82157730340015,578.7246843647966,0.009563209556367913,250.4325565810012,3.9496895085094432,-0.3898303944532562,32448,25958,6490
