@@ -2,4 +2,17 @@
 .venv
 __pycache__
 .ipynb_checkpoints
+
+# Keep folder structure
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# Forecasting models
+models/forecasting/*.pkl
+
+# Python cache
+*.pyc
+
+# JSON files
 *.json

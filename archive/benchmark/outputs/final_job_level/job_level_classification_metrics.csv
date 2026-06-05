@@ -1,0 +1,2 @@
+model,target,accuracy,precision_macro,recall_macro,f1_macro
+JobType_RoleApp_ProfileMode,job_type,0.8249396863691194,0.8321829561627645,0.7512963391464357,0.7736483837753578

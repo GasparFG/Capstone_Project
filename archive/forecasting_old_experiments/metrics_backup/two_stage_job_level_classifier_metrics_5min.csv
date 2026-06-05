@@ -1,0 +1,2 @@
+model,forecast_freq,threshold,accuracy,precision,recall,f1,roc_auc
+TwoStage_JobLevel_ActiveClassifier,5min,0.35,0.5555555555555556,0.49047619047619045,0.8306451612903226,0.6167664670658682,0.7131195908733281
