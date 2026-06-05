@@ -1,26 +1,26 @@
 """
 config_seconds.py
 =================
-Configuración del pipeline de forecasting en SEGUNDOS.
-Usa cleaned_data.parquet como entrada (12,374 jobs reales).
+Configuration for the forecasting pipeline in SECONDS.
+Uses cleaned_data.parquet as input (12,374 real jobs).
 """
 
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]   # Capstone_Project/
 
-# ── Entrada ──────────────────────────────────────────────────────────────────
+# ── Input ─────────────────────────────────────────────────────────────────────
 INPUT_DATA = BASE_DIR / "data" / "interim" / "cleaned_data.parquet"
 
-# ── Procesados ───────────────────────────────────────────────────────────────
+# ── Processed ─────────────────────────────────────────────────────────────────
 PREPARED_DATA   = BASE_DIR / "data" / "processed" / "forecast_dataset_seconds.parquet"
 FORECAST_OUTPUT = BASE_DIR / "data" / "processed" / "optimization_input_seconds.parquet"
 
-# ── Salidas ──────────────────────────────────────────────────────────────────
+# ── Outputs ───────────────────────────────────────────────────────────────────
 OUTPUTS_DIR = BASE_DIR / "outputs" / "forecast_seconds"
 MODELS_DIR  = BASE_DIR / "models" / "forecast_seconds"
 
-# ── Columnas requeridas en cleaned_data ──────────────────────────────────────
+# ── Required columns in cleaned_data ─────────────────────────────────────────
 REQUIRED_COLUMNS = [
     "instance_sn",
     "role",
@@ -32,26 +32,26 @@ REQUIRED_COLUMNS = [
     "job_type",
 ]
 
-# ── Targets del modelo ───────────────────────────────────────────────────────
-# Único target verdaderamente continuo → regresión XGBoost + log1p
+# ── Model targets ─────────────────────────────────────────────────────────────
+# Only truly continuous target → XGBoost regression + log1p
 NUMERIC_TARGETS  = ["duration_seconds"]
 
-# Valores discretos → clasificación XGBoost
-# cpu_request:          9 valores únicos  (2, 8, 12, 16, 48, 64, 96, 192...)
-# memory_request:      24 valores únicos  (MB discretos del sistema)
-# interarrival_bucket: 5 buckets operacionales (0s / 1-30s / 30-300s / 300-3600s / >3600s)
-#   El 34.9% de jobs son simultáneos (interarrival=0). Regresión no puede predecir 0s
-#   exactos, destruyendo R² y MAPE. Clasificar el RÉGIMEN de llegada es más
-#   útil para el optimizador que predecir el segundo exacto.
+# Discrete values → XGBoost classification
+# cpu_request:          9 unique values  (2, 8, 12, 16, 48, 64, 96, 192...)
+# memory_request:      24 unique values  (discrete MB values in the system)
+# interarrival_bucket: 5 operational buckets (0s / 1-30s / 30-300s / 300-3600s / >3600s)
+#   34.9% of jobs arrive simultaneously (interarrival=0). Regression cannot predict
+#   exact 0s, destroying R² and MAPE. Classifying the arrival REGIME is more
+#   useful for the optimizer than predicting the exact second.
 DISCRETE_TARGETS = ["cpu_request", "memory_request", "interarrival_bucket"]
 
-# Descriptores del job → clasificación
+# Job descriptors → classification
 DESCRIPTOR_TARGETS = ["role_encoded", "app_name_encoded", "job_type_encoded"]
 
-# Buckets de interarrival (segundos) y su valor representativo para el forecast
+# Interarrival buckets (seconds) and their representative value for the forecast
 INTERARRIVAL_BINS    = [-1, 0, 30, 300, 3600, float("inf")]
 INTERARRIVAL_LABELS  = ["0s", "1-30s", "30-300s", "300-3600s", ">3600s"]
-INTERARRIVAL_MEDIANS = {       # mediana empírica de cada bucket (segundos)
+INTERARRIVAL_MEDIANS = {       # empirical median of each bucket (seconds)
     "0s":      0.0,
     "1-30s":   8.0,
     "30-300s": 90.0,
@@ -59,10 +59,10 @@ INTERARRIVAL_MEDIANS = {       # mediana empírica de cada bucket (segundos)
     ">3600s":  3600.0,
 }
 
-# ── Parámetros de entrenamiento ──────────────────────────────────────────────
+# ── Training parameters ───────────────────────────────────────────────────────
 TEST_SIZE          = 0.20
 RANDOM_STATE       = 42
 
-# ── Horizonte del forecast ───────────────────────────────────────────────────
-FORECAST_HORIZON_SECONDS = 86_400   # 1 día completo
-MAX_GENERATED_JOBS       = 10_000   # límite de seguridad
+# ── Forecast horizon ──────────────────────────────────────────────────────────
+FORECAST_HORIZON_SECONDS = 86_400   # 1 full day
+MAX_GENERATED_JOBS       = 10_000   # safety limit

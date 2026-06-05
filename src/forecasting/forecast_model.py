@@ -495,15 +495,10 @@ def generate_future_jobs(
             condition_value=job_type,
         )
 
-        gpu_values = history.loc[
-            history["job_type"] == job_type,
-            "gpu_request",
-        ].dropna()
-
-        if len(gpu_values) == 0:
-            gpu_values = history["gpu_request"].dropna()
-
-        gpu_request = int(rng.choice(gpu_values.values))
+        # gpu_request is fully determined by role: CN nodes never use GPU (gpu=0),
+        # HN nodes always use GPU (gpu=1) — no exceptions in the historical data.
+        # Sampling them independently produced invalid combinations (CN+gpu=1, HN+gpu=0).
+        gpu_request = 0 if role == "cn" else 1
 
         base_row = build_future_base_features(
             history=history,

@@ -1,29 +1,29 @@
 """
 train_model.py
 ==============
-Entrena los modelos XGBoost de forecasting usando el dataset en SEGUNDOS.
+Trains the XGBoost forecasting models using the dataset in SECONDS.
 
-Modelos entrenados:
-  REGRESIÓN (valores continuos):
-  - interarrival_seconds  → segundos hasta el siguiente job
-  - duration_seconds      → duración esperada del job
+Models trained:
+  REGRESSION (continuous values):
+  - duration_seconds      -> expected job duration
 
-  CLASIFICACIÓN — valores discretos (pocos valores únicos):
-  - cpu_request           → 9 valores posibles  (2, 8, 12, 16, 48, 64, 96, 192...)
-  - memory_request        → 25 valores posibles
-  - role_encoded          → 2 clases (CN / HN)
-  - app_name_encoded      → 151 apps
-  - job_type_encoded      → 2 clases (batch / interactive)
+  CLASSIFICATION (discrete values, few unique values):
+  - cpu_request           -> 9 possible values  (2, 8, 12, 16, 48, 64, 96, 192...)
+  - memory_request        -> 24 possible values
+  - interarrival_bucket   -> 5 arrival regime buckets
+  - role_encoded          -> 2 classes (CN / HN)
+  - app_name_encoded      -> 151 apps
+  - job_type_encoded      -> 2 classes (batch / interactive)
 
-Salidas:
-  models/forecast_seconds/{target}_model.joblib       ← regresores
-  models/forecast_seconds/{target}_classifier.joblib  ← clasificadores (cpu, memory, descriptores)
+Outputs:
+  models/forecast_seconds/{target}_model.joblib       <- regressors
+  models/forecast_seconds/{target}_classifier.joblib  <- classifiers (cpu, memory, descriptors)
   models/forecast_seconds/model_metadata.json
   outputs/forecast_seconds/regression_metrics.csv
   outputs/forecast_seconds/classification_metrics.csv
   outputs/forecast_seconds/test_predictions.csv
 
-Ejecutar desde src/forecasting/:
+Run from src/forecasting/:
     python train_model.py
 """
 
@@ -45,7 +45,7 @@ from sklearn.preprocessing import LabelEncoder
 try:
     from xgboost import XGBRegressor, XGBClassifier
 except ImportError as e:
-    raise ImportError("XGBoost no está instalado. Ejecuta: pip install xgboost") from e
+    raise ImportError("XGBoost is not installed. Run: pip install xgboost") from e
 
 from config_seconds import (
     PREPARED_DATA, MODELS_DIR, OUTPUTS_DIR,
@@ -53,7 +53,7 @@ from config_seconds import (
     NUMERIC_TARGETS, DISCRETE_TARGETS, DESCRIPTOR_TARGETS,
 )
 
-# ── Columnas que NO entran como features ─────────────────────────────────────
+# ── Columns excluded from features ───────────────────────────────────────────
 DROP_ALWAYS = [
     "instance_sn", "creation_time", "deletion_time", "gpu_request",
     "scheduled_time", "scheduled_seconds", "arrival_order",
@@ -66,7 +66,7 @@ DROP_ALWAYS = [
 CURRENT_DESCRIPTORS = ["role_encoded", "app_name_encoded", "job_type_encoded"]
 
 
-# ── Métricas ─────────────────────────────────────────────────────────────────
+# ── Metrics ───────────────────────────────────────────────────────────────────
 
 def mape(y_true, y_pred):
     y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
@@ -97,21 +97,21 @@ def clean(X: pd.DataFrame) -> pd.DataFrame:
     return X.apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0)
 
 
-# ── Selección de feature columns ─────────────────────────────────────────────
+# ── Feature column selection ──────────────────────────────────────────────────
 
 def past_feature_columns(df: pd.DataFrame):
-    """Features que NO usan información del job actual (solo pasado)."""
+    """Features that do NOT use current job information (past only)."""
     return [c for c in df.columns if c not in DROP_ALWAYS and c not in CURRENT_DESCRIPTORS]
 
 
 def capacity_feature_columns(df: pd.DataFrame):
-    """Features para predecir CPU/memory/duration — incluye descriptores del job actual."""
+    """Features for predicting CPU/memory/duration — includes current job descriptors."""
     past = past_feature_columns(df)
     caps = [c for c in CURRENT_DESCRIPTORS if c in df.columns]
     return list(dict.fromkeys(past + caps))
 
 
-# ── Configuración de hiperparámetros XGBoost ─────────────────────────────────
+# ── XGBoost hyperparameter configurations ────────────────────────────────────
 
 XGB_PARAMS = {
     "cpu_request": [
@@ -153,16 +153,16 @@ XGB_PARAMS = {
 }
 
 
-# ── Entrenamiento de regresores ───────────────────────────────────────────────
+# ── Regressor training ────────────────────────────────────────────────────────
 
 def select_best_regressor(target, X_train, X_test, train_df, test_df):
-    """Entrena los candidatos para `target` y devuelve el mejor por RMSE."""
+    """Trains all candidates for `target` and returns the best by RMSE."""
     y_train = np.log1p(train_df[target])
     y_test  = test_df[target].values
     best = None
 
     for name, params in XGB_PARAMS[target]:
-        print(f"  Candidato: {name}")
+        print(f"  Candidate: {name}")
         model = XGBRegressor(
             objective="reg:squarederror",
             random_state=RANDOM_STATE,
@@ -177,15 +177,15 @@ def select_best_regressor(target, X_train, X_test, train_df, test_df):
         if best is None or metrics["RMSE"] < best["metrics"]["RMSE"]:
             best = result
 
-    print(f"  → Mejor: {best['name']}  RMSE={best['metrics']['RMSE']:.2f}  R2={best['metrics']['R2']:.4f}  LOG_R2={best['metrics']['LOG_R2']:.4f}")
+    print(f"  -> Best: {best['name']}  RMSE={best['metrics']['RMSE']:.2f}  R2={best['metrics']['R2']:.4f}  LOG_R2={best['metrics']['LOG_R2']:.4f}")
     return best
 
 
-# ── Entrenamiento de clasificadores ──────────────────────────────────────────
+# ── Classifier training ───────────────────────────────────────────────────────
 
 def train_classifier(target, X_train, X_test, train_df, test_df):
-    # Castear a string para que sklearn no confunda floats discretos (320.0, 64.0)
-    # con variables continuas. Aplica tanto a encodings enteros como a valores float.
+    # Cast to string so sklearn does not confuse discrete floats (320.0, 64.0)
+    # with continuous variables. Applies to both integer encodings and float values.
     y_train = train_df[target].astype(str)
     y_test  = test_df[target].astype(str)
     n_classes = int(y_train.nunique())
@@ -194,21 +194,21 @@ def train_classifier(target, X_train, X_test, train_df, test_df):
         pred = np.full(len(y_test), y_train.iloc[0])
         return None, None, _cls_metrics(y_test, pred, target, "constant"), pred
 
-    # LabelEncoder remapea las clases a 0..n-1 contiguas.
-    # Necesario cuando el split temporal deja huecos en los códigos de entrenamiento
-    # (ej: app_name_encoded=[0,1,3,4,...] — XGBoost exige [0,1,2,3,...]).
+    # LabelEncoder remaps classes to contiguous 0..n-1.
+    # Needed when the temporal split leaves gaps in training codes
+    # (e.g. app_name_encoded=[0,1,3,4,...] but XGBoost requires [0,1,2,3,...]).
     le = LabelEncoder()
     y_train_enc = le.fit_transform(y_train)
 
-    # Test: clases vistas en train → encodear; no vistas → -1 (se excluyen de métricas)
+    # Test: classes seen in train -> encode; unseen -> -1 (excluded from metrics)
     known_mask  = y_test.isin(le.classes_)
     y_test_enc  = np.full(len(y_test), -1, dtype=int)
     y_test_enc[known_mask.values] = le.transform(y_test[known_mask])
 
-    n_enc      = len(le.classes_)
-    objective  = "multi:softprob" if n_enc > 2 else "binary:logistic"
-    extra      = {"num_class": n_enc} if n_enc > 2 else {}
-    eval_metric= "mlogloss" if n_enc > 2 else "logloss"
+    n_enc       = len(le.classes_)
+    objective   = "multi:softprob" if n_enc > 2 else "binary:logistic"
+    extra       = {"num_class": n_enc} if n_enc > 2 else {}
+    eval_metric = "mlogloss" if n_enc > 2 else "logloss"
 
     model = XGBClassifier(
         objective=objective,
@@ -228,11 +228,11 @@ def train_classifier(target, X_train, X_test, train_df, test_df):
     )
     model.fit(X_train, y_train_enc)
 
-    # Predicción → inverse_transform para recuperar el código original de app/role/job_type
+    # Predict -> inverse_transform to recover the original code (app/role/job_type)
     pred_enc = model.predict(X_test)
     pred     = le.inverse_transform(pred_enc.astype(int))
 
-    # Métricas solo sobre clases conocidas en test
+    # Metrics only over classes known in test set
     valid = known_mask.values
     metrics = _cls_metrics(
         y_test[valid], pred[valid], target, f"xgb_{target}_classifier"
@@ -250,14 +250,14 @@ def _cls_metrics(y_true, y_pred, target, model_name):
     }
 
 
-# ── Pipeline principal ────────────────────────────────────────────────────────
+# ── Main pipeline ─────────────────────────────────────────────────────────────
 
 def train_model() -> None:
-    print(f"Cargando dataset preparado: {PREPARED_DATA}")
+    print(f"Loading prepared dataset: {PREPARED_DATA}")
     data = pd.read_parquet(PREPARED_DATA)
     print(f"Shape: {data.shape}")
 
-    # Split temporal (80% train / 20% test)
+    # Temporal split (80% train / 20% test)
     split = int(len(data) * (1 - TEST_SIZE))
     train_df = data.iloc[:split].copy()
     test_df  = data.iloc[split:].copy()
@@ -275,7 +275,6 @@ def train_model() -> None:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # helper para guardar clasificadores
     def save_classifier(target, X_tr, X_te, label=""):
         print(f"\n[{target}]{label}")
         model, le, metrics, pred = train_classifier(target, X_tr, X_te, train_df, test_df)
@@ -284,47 +283,44 @@ def train_model() -> None:
                         MODELS_DIR / f"{target}_classifier.joblib")
         return metrics, pred
 
-    # ── Clasificadores de descriptores (role, app_name, job_type) ─────────────
-    print("\n── Clasificadores de descriptores ──")
+    # ── Descriptor classifiers (role, app_name, job_type) ─────────────────────
+    print("\n── Descriptor classifiers ──")
     cls_rows = {}
     for target in [t for t in DESCRIPTOR_TARGETS if t in data.columns]:
         metrics, pred = save_classifier(target, X_train_past, X_test_past)
         cls_rows[target] = {"metrics": metrics, "pred": pred}
 
-    # ── Clasificadores de recursos discretos (cpu, memory) ───────────────────
-    print("\n── Clasificadores de recursos discretos ──")
+    # ── Discrete resource classifiers (cpu, memory, interarrival_bucket) ──────
+    print("\n── Discrete resource classifiers ──")
     for target in [t for t in DISCRETE_TARGETS if t in data.columns]:
-        # interarrival_bucket: predice CUÁNDO llega el siguiente job
-        #   → solo features pasadas (aún no conocemos nada del job futuro)
-        # cpu_request / memory_request: predice QUÉ recursos necesita el job
-        #   → capacity features (incluye descriptores role/app/job_type del job actual)
+        # interarrival_bucket: predicts WHEN the next job arrives
+        #   -> past-only features (the future job's descriptors are unknown at this point)
+        # cpu_request / memory_request: predict WHAT resources the job needs
+        #   -> capacity features (include current job descriptors role/app/job_type)
         use_past = (target == "interarrival_bucket")
         X_tr = X_train_past if use_past else X_train_cap
         X_te = X_test_past  if use_past else X_test_cap
         metrics, pred = save_classifier(
             target, X_tr, X_te,
-            label=f"  ({data[target].nunique()} valores únicos)"
+            label=f"  ({data[target].nunique()} unique values)"
         )
         cls_rows[target] = {"metrics": metrics, "pred": pred}
 
-    # ── Regresores continuos (interarrival, duration) ─────────────────────────
-    print("\n── Regresores continuos ──")
+    # ── Continuous regressors (duration) ──────────────────────────────────────
+    print("\n── Continuous regressors ──")
     reg_rows = []
     pred_df  = test_df[["arrival_order", "scheduled_seconds", "job_type", "role", "app_name"]].copy()
 
     for target in NUMERIC_TARGETS:
         print(f"\n[{target}]")
-        # duration usa features de capacidad (incluye descriptores del job)
-        X_tr = X_train_cap
-        X_te = X_test_cap
-        best = select_best_regressor(target, X_tr, X_te, train_df, test_df)
+        best = select_best_regressor(target, X_train_cap, X_test_cap, train_df, test_df)
         reg_rows.append(best["metrics"])
         pred_df[f"{target}_actual"]         = test_df[target].values
         pred_df[f"{target}_predicted"]      = best["pred"]
         pred_df[f"{target}_selected_model"] = best["name"]
         joblib.dump(best["model"], MODELS_DIR / f"{target}_model.joblib")
 
-    # ── Guardar métricas ──────────────────────────────────────────────────────
+    # ── Save metrics ──────────────────────────────────────────────────────────
     reg_df = pd.DataFrame(reg_rows)
     cls_df = pd.DataFrame([v["metrics"] for v in cls_rows.values()])
     reg_df.to_csv(OUTPUTS_DIR / "regression_metrics.csv", index=False)
@@ -333,7 +329,7 @@ def train_model() -> None:
     pd.DataFrame({"feature": past_cols}).to_csv(OUTPUTS_DIR / "past_feature_columns.csv", index=False)
     pd.DataFrame({"feature": cap_cols}).to_csv(OUTPUTS_DIR / "capacity_feature_columns.csv", index=False)
 
-    # ── Guardar distribución de descriptores ─────────────────────────────────
+    # ── Save descriptor distribution ──────────────────────────────────────────
     desc_cols = [c for c in ["role", "app_name", "job_type"] if c in data.columns]
     dist = (
         data[desc_cols].groupby(desc_cols, dropna=False)
@@ -342,7 +338,7 @@ def train_model() -> None:
     dist["probability"] = dist["count"] / dist["count"].sum()
     dist.to_csv(MODELS_DIR / "descriptor_distribution.csv", index=False)
 
-    # ── Guardar metadata ──────────────────────────────────────────────────────
+    # ── Save model metadata ───────────────────────────────────────────────────
     metadata = {
         "past_feature_columns":     past_cols,
         "capacity_feature_columns": cap_cols,
@@ -352,25 +348,25 @@ def train_model() -> None:
         "split_index":              split,
         "time_unit":                "seconds",
         "note": (
-            "interarrival_seconds y duration_seconds → regresión (valores continuos). "
-            "cpu_request y memory_request → clasificación (valores discretos). "
-            "role_encoded, app_name_encoded, job_type_encoded → clasificación."
+            "interarrival_seconds and duration_seconds -> regression (continuous). "
+            "cpu_request and memory_request -> classification (discrete values). "
+            "role_encoded, app_name_encoded, job_type_encoded -> classification."
         ),
     }
     with open(MODELS_DIR / "model_metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4)
 
-    # ── Resumen final ─────────────────────────────────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────────────
     print("\n══════════════════════════════════════════════")
-    print("MÉTRICAS DE REGRESIÓN — valores continuos")
+    print("REGRESSION METRICS — continuous targets")
     print("══════════════════════════════════════════════")
     print(reg_df[["target", "RMSE", "MAE", "MAPE", "R2", "LOG_R2"]].to_string(index=False))
     print("\n══════════════════════════════════════════════")
-    print("MÉTRICAS DE CLASIFICACIÓN — valores discretos + descriptores")
+    print("CLASSIFICATION METRICS — discrete targets + descriptors")
     print("══════════════════════════════════════════════")
     print(cls_df[["target", "accuracy", "f1_macro"]].to_string(index=False))
-    print(f"\nModelos guardados en: {MODELS_DIR}")
-    print(f"Métricas guardadas en: {OUTPUTS_DIR}")
+    print(f"\nModels saved to: {MODELS_DIR}")
+    print(f"Metrics saved to: {OUTPUTS_DIR}")
 
 
 if __name__ == "__main__":

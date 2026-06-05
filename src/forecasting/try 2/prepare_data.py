@@ -1,12 +1,12 @@
 """
 prepare_data.py
 ===============
-Lee cleaned_data.parquet y genera el dataset de entrenamiento en SEGUNDOS
-con lag features y rolling features para el pipeline de forecasting.
+Reads cleaned_data.parquet and builds the training dataset in SECONDS
+with lag features and rolling features for the forecasting pipeline.
 
-Salida: data/processed/forecast_dataset_seconds.parquet
+Output: data/processed/forecast_dataset_seconds.parquet
 
-Ejecutar desde src/forecasting/:
+Run from src/forecasting/:
     python prepare_data.py
 """
 
@@ -22,7 +22,7 @@ from config_seconds import (
     DESCRIPTOR_TARGETS, INTERARRIVAL_BINS, INTERARRIVAL_LABELS,
 )
 
-# ── Columnas a excluir de los features (targets actuales y metadatos) ─────────
+# ── Columns excluded from features (current targets and metadata) ─────────────
 DROP_FROM_FEATURES = [
     "instance_sn", "creation_time", "deletion_time", "gpu_request",
     "scheduled_time", "scheduled_seconds",
@@ -48,7 +48,7 @@ ROLLING_WINS = [5, 10, 20, 50]
 def validate(df: pd.DataFrame) -> None:
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(f"Columnas faltantes en el dataset: {missing}")
+        raise ValueError(f"Missing columns in dataset: {missing}")
 
 
 def cyclic(series: pd.Series, period: float):
@@ -56,30 +56,30 @@ def cyclic(series: pd.Series, period: float):
 
 
 def prepare_data() -> None:
-    # ── Carga ─────────────────────────────────────────────────────────────────
-    print(f"Leyendo: {INPUT_DATA}")
+    # ── Load ──────────────────────────────────────────────────────────────────
+    print(f"Reading: {INPUT_DATA}")
     df = pd.read_parquet(INPUT_DATA)
 
-    # Quitar columnas extra (Unnamed, estadísticas incrustadas)
+    # Drop extra columns (Unnamed, embedded statistics)
     real_cols = [c for c in df.columns if not c.startswith("Unnamed") and c not in ["12374", "100"]]
     df = df[real_cols].copy()
 
     validate(df)
-    print(f"Shape original: {df.shape}")
+    print(f"Original shape: {df.shape}")
 
-    # ── Tiempos ya vienen como timedelta64[ns] en el parquet ─────────────────
-    # No hace falta pd.to_timedelta(); solo garantizar el tipo por si acaso
+    # ── Times already stored as timedelta64[ns] in the parquet ───────────────
+    # pd.to_timedelta() not needed; just ensure type in case of edge cases
     for col in ["creation_time", "scheduled_time", "deletion_time"]:
         if col in df.columns and not pd.api.types.is_timedelta64_dtype(df[col]):
             df[col] = pd.to_timedelta(df[col])
 
-    # Ordenar por scheduled_time
+    # Sort by scheduled_time
     df = df.sort_values("scheduled_time").reset_index(drop=True)
 
-    # Tiempo base en SEGUNDOS desde el inicio del dataset
+    # Base time in SECONDS from dataset start
     df["scheduled_seconds"] = df["scheduled_time"].dt.total_seconds()
 
-    # duration_seconds ya existe en el parquet — usarla directamente
+    # duration_seconds already exists in the parquet — use it directly
     if "duration_seconds" not in df.columns:
         df["duration_seconds"] = pd.to_numeric(df["duration_minutes"], errors="coerce").fillna(0).clip(lower=0) * 60
     else:
@@ -88,19 +88,19 @@ def prepare_data() -> None:
     for col in ["cpu_request", "memory_request"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).clip(lower=0)
 
-    # ── Interarrival en segundos + bucket ────────────────────────────────────
+    # ── Interarrival in seconds + bucket ─────────────────────────────────────
     df["interarrival_seconds"] = df["scheduled_time"].diff().dt.total_seconds().fillna(0).clip(lower=0)
 
-    # Bucket operacional: clasifica el RÉGIMEN de llegada en lugar de predecir
-    # el segundo exacto. El 34.9% de jobs son simultáneos (interarrival=0),
-    # lo que hace imposible la regresión precisa.
+    # Operational bucket: classifies the arrival REGIME instead of predicting
+    # the exact second. 34.9% of jobs are simultaneous (interarrival=0),
+    # making precise regression impossible.
     df["interarrival_bucket"] = pd.cut(
         df["interarrival_seconds"],
         bins=INTERARRIVAL_BINS,
         labels=INTERARRIVAL_LABELS,
     ).astype(str)
 
-    # ── Encodings de descriptores ─────────────────────────────────────────────
+    # ── Descriptor encodings ─────────────────────────────────────────────────
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     mappings = {}
     for col in ["role", "app_name", "job_type"]:
@@ -116,19 +116,18 @@ def prepare_data() -> None:
     with open(OUTPUTS_DIR / "descriptor_mappings.json", "w", encoding="utf-8") as f:
         json.dump(mappings, f, indent=4)
 
-    # ── Features de tiempo ────────────────────────────────────────────────────
-    # Solo usamos la posición dentro del día (time_of_day_s, hour, minute, second)
-    # y sus versiones cíclicas. El dato es un timedelta desde t=0 sin fecha real,
-    # así que NO calculamos day_of_week ni is_weekend — no sabemos qué día de la
-    # semana corresponde al día 0 del dataset, por lo que esas features no son
-    # verificables ni defendibles.
+    # ── Time features ─────────────────────────────────────────────────────────
+    # Only intra-day position features (time_of_day_s, hour, minute, second)
+    # and cyclic encodings. The dataset is a timedelta from t=0 with no real
+    # calendar date, so day_of_week and is_weekend are excluded — we cannot
+    # verify which actual weekday corresponds to day 0 of the dataset.
     df["arrival_order"] = np.arange(1, len(df) + 1)
     df["time_of_day_s"] = df["scheduled_seconds"] % 86_400
     df["hour"]          = (df["time_of_day_s"] // 3600).astype(int)
     df["minute"]        = ((df["time_of_day_s"] % 3600) // 60).astype(int)
     df["second"]        = (df["time_of_day_s"] % 60).astype(int)
 
-    # Seno/coseno del ciclo diario: le dan al modelo la continuidad entre 23:59 y 00:00
+    # Sine/cosine of the daily cycle: give the model continuity between 23:59 and 00:00
     df["time_sin"], df["time_cos"] = cyclic(df["time_of_day_s"], 86_400)
 
     # ── Log transforms ────────────────────────────────────────────────────────
@@ -153,7 +152,7 @@ def prepare_data() -> None:
                 f"{col}_rolling_max_{w}":    shifted.rolling(w).max(),
             }))
 
-    # ── Combinar todo ─────────────────────────────────────────────────────────
+    # ── Combine all blocks ────────────────────────────────────────────────────
     model_df = (
         pd.concat([df] + lag_blocks + rolling_blocks, axis=1)
         .replace([np.inf, -np.inf], np.nan)
@@ -162,16 +161,15 @@ def prepare_data() -> None:
         .copy()
     )
 
-    print(f"Shape final (después de dropna): {model_df.shape}")
-    print(f"Columnas: {len(model_df.columns)}")
+    print(f"Final shape (after dropna): {model_df.shape}")
+    print(f"Columns: {len(model_df.columns)}")
 
-    # ── Guardar ───────────────────────────────────────────────────────────────
+    # ── Save ──────────────────────────────────────────────────────────────────
     PREPARED_DATA.parent.mkdir(parents=True, exist_ok=True)
     model_df.to_parquet(PREPARED_DATA, index=False)
-    print(f"\nDataset guardado en: {PREPARED_DATA}")
+    print(f"\nDataset saved to: {PREPARED_DATA}")
 
-    # Resumen de estadísticas clave
-    print("\n── Estadísticas de targets ──")
+    print("\n── Target statistics ──")
     for col in ["interarrival_seconds", "duration_seconds", "cpu_request", "memory_request"]:
         s = model_df[col]
         print(f"  {col}: mean={s.mean():.1f}  median={s.median():.1f}  std={s.std():.1f}  max={s.max():.1f}")
