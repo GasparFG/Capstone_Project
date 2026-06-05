@@ -103,24 +103,17 @@ def solve_datacenter_model(
     # -----------------------------
     # 4.2 Build model
     # -----------------------------
-    gurobi_wls_access_id = os.getenv("GUROBI_WLSACCESSID")
-    gurobi_wls_secret = os.getenv("GUROBI_WLSSECRET")
-    gurobi_license_id = os.getenv("GUROBI_LICENSEID")
+    params = {
+        "WLSACCESSID": "fc17fa3a-ef7f-41d2-b95c-20c3b221a483",
+        "WLSSECRET": "6bee54d1-5c9f-4f12-9d64-0c7b16e0dd52",
+        "LICENSEID": 2804943
+    }
 
-    if gurobi_wls_access_id and gurobi_wls_secret and gurobi_license_id:
-        params = {
-            "WLSACCESSID": gurobi_wls_access_id,
-            "WLSSECRET": gurobi_wls_secret,
-            "LICENSEID": int(gurobi_license_id),
-        }
-
-        env = gp.Env(empty=True)
-        for key, value in params.items():
-            env.setParam(key, value)
-        env.start()
-        mdl = gp.Model(f"datacenter_1day_{scenario_name}", env=env)
-    else:
-        mdl = gp.Model(f"datacenter_1day_{scenario_name}")
+    env = gp.Env(empty=True)
+    for key, value in params.items():
+        env.setParam(key, value)
+    env.start()
+    mdl = gp.Model(f"datacenter_1day_{scenario_name}", env=env)
     mdl.setParam("TimeLimit", time_limit)
     mdl.setParam("MIPGap", mip_gap)
     if not verbose:
