@@ -1,0 +1,2 @@
+Output File,Rows / Predicted Jobs,Columns,Level,Purpose
+data/processed/optimization_input_dataset.parquet,939,10,Job-level,Direct input for the optimization model

@@ -1,0 +1,4 @@
+Experiment,corr_duration_cpu_training,corr_duration_memory_training,corr_duration_cpu_testing,corr_duration_memory_testing
+1,0.1057,0.1019,0.0315,0.0309
+2,0.124,0.1169,0.0895,0.0922
+3,0.0958,0.0938,0.1117,0.1133

@@ -1,0 +1,6 @@
+target,metric_type,model,RMSE,MAE,MAPE,SMAPE,R2,LOG_R2,role,accuracy,precision_macro,recall_macro,f1_macro
+interarrival_minutes,regression,JobLevel_HistoricalProfile,7.818300347224512,3.319560967028549,716.1827853082527,110.42021983318224,-0.0899483499072686,-0.1817793880232632,Timing/duration support variable,,,,
+cpu_request,regression,JobLevel_HistoricalProfile,5.104930325761614,0.6984318455971049,1.132137112987535,0.9056618224290118,0.980957821194108,0.995860853079759,Primary optimization capacity variable,,,,
+memory_request,regression,JobLevel_HistoricalProfile,28.42248730503623,10.726289203860071,3.7269584970543166,3.518026327038742,0.976832097191992,0.9946841655022524,Primary optimization capacity variable,,,,
+duration_minutes,regression,JobLevel_HistoricalProfile,4241.68989671082,1480.6147031330418,271.3529582988306,79.45415983121026,0.0516749957495861,0.6885105236614333,Timing/duration support variable,,,,
+job_type,classification,JobType_RoleApp_ProfileMode,,,,,,,Job type descriptor prediction,0.8249396863691194,0.8321829561627645,0.7512963391464357,0.7736483837753578

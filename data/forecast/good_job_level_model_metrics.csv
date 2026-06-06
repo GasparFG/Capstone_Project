@@ -1,0 +1,5 @@
+model,target,metric_space,accuracy,mae,rmse,r2
+XGBoost classifier,cpu_request,classification_discrete_values,0.8798303487276155,4.378887841658813,14.751731156097943,0.8634535999138417
+XGBoost classifier,memory_request,classification_discrete_values,0.7935909519321395,26.10650329877474,79.72997548925646,0.8458191523893788
+XGBoost log-regressor,duration_seconds,log_duration,,11474.633274318585,25762.72781753657,0.8351798963009638
+XGBoost log-regressor,duration_seconds,raw_duration_diagnostic,,11474.633274318585,25762.72781753657,0.24196486369960735
