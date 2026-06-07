@@ -3,6 +3,222 @@
 from pathlib import Path
 from typing import Any, Dict, List
 import math
+import json
+
+
+def load_data_from_jobs_json(jobs_json_path: Path) -> Dict[str, Any]:
+    """
+    Load forecast-translated job parameters from optimization_jobs_params.json
+    and build the complete optimization input dictionary expected by solver.py.
+    """
+
+    if not jobs_json_path.exists():
+        raise FileNotFoundError(
+            f"Jobs JSON file not found: {jobs_json_path}. "
+            "Run build_jobs_json_from_forecast.py first."
+        )
+
+    with open(jobs_json_path, "r", encoding="utf-8") as file:
+        jobs_data = json.load(file)
+
+    required_sections = [
+        "sets",
+        "eligibility",
+        "job_params",
+    ]
+
+    missing_sections = [
+        section for section in required_sections
+        if section not in jobs_data
+    ]
+
+    if missing_sections:
+        raise ValueError(
+            f"Missing required sections in {jobs_json_path}: {missing_sections}. "
+            f"Available sections: {list(jobs_data.keys())}"
+        )
+
+    sets = jobs_data["sets"]
+
+    I = sets["I"]
+    I_B = sets["I_B"]
+    I_V = sets["I_V"]
+    I_C = sets["I_C"]
+
+    # The forecast-to-optimization translator assigns eligibility over 42 servers:
+    # GPU servers 0-33 and CPU servers 34-41.
+    J = list(range(42))
+
+    # 24-hour horizon with 15-minute slots.
+    K = list(range(96))
+    slot_duration = 0.25
+
+    # Build simple failure domains/racks.
+    # This creates 7 groups of 6 servers each.
+    F = [
+        list(range(0, 6)),
+        list(range(6, 12)),
+        list(range(12, 18)),
+        list(range(18, 24)),
+        list(range(24, 30)),
+        list(range(30, 36)),
+        list(range(36, 42)),
+    ]
+
+    E = sets.get("E", [])
+    A = sets.get("A", [])
+    G = sets.get("G", [])
+
+    eligibility = jobs_data["eligibility"]
+    job_params = jobs_data["job_params"]
+
+    # Validate that all eligible servers exist in J.
+    valid_servers = set(J)
+    for job_id, servers in eligibility.items():
+        invalid_servers = [
+            server for server in servers if server not in valid_servers]
+        if invalid_servers:
+            raise ValueError(
+                f"Job {job_id} has invalid eligible servers: {invalid_servers}. "
+                f"Valid servers are 0 to {max(J)}."
+            )
+
+    # Cooling COP repeated by 15-minute slots.
+    hourly_eta = [
+        5.0, 5.0, 5.0, 5.0,
+        4.5, 4.5, 4.5, 4.5,
+        3.5, 3.5, 3.5, 3.5,
+        3.0, 3.0, 3.0, 3.0,
+        3.5, 3.5, 3.5, 3.5,
+        4.5, 4.5, 4.5, 4.5,
+    ]
+
+    eta_values = []
+    for value in hourly_eta:
+        eta_values.extend([value] * 4)
+
+    # Server parameters.
+    # GPU servers are assumed to have higher idle and dynamic power.
+    C = {}
+    theta = {}
+    P0 = {}
+    dP = {}
+    alpha = {}
+    lambda0 = {}
+    lambda_pm = {}
+    Lambda = {}
+
+    for j in J:
+        C[str(j)] = 1.0
+        theta[str(j)] = 0.30
+
+        if j <= 33:
+            # GPU-capable servers
+            P0[str(j)] = 180.0
+            dP[str(j)] = 320.0
+            alpha[str(j)] = 0.90
+            lambda0[str(j)] = 0.025
+            lambda_pm[str(j)] = 0.006
+            Lambda[str(j)] = 4.0
+        else:
+            # CPU-only servers
+            P0[str(j)] = 110.0
+            dP[str(j)] = 180.0
+            alpha[str(j)] = 0.87
+            lambda0[str(j)] = 0.020
+            lambda_pm[str(j)] = 0.005
+            Lambda[str(j)] = 4.0
+
+    # Thermal recirculation matrix.
+    # Diagonal is zero. Servers in the same failure domain/rack have slightly
+    # higher recirculation than servers in different racks.
+    thermal_matrix = []
+
+    for j in J:
+        row = []
+
+        for jp in J:
+            if j == jp:
+                row.append(0.0)
+            elif any(j in rack and jp in rack for rack in F):
+                row.append(0.010)
+            else:
+                row.append(0.003)
+
+        thermal_matrix.append(row)
+
+    demand_by_slot = [0.0 for _ in K]
+
+    data = {
+        "pipeline_note": (
+            f"Optimization input loaded from {jobs_json_path}. "
+            "Forecasted job-level workload was converted into MILP job parameters."
+        ),
+        "sets": {
+            "I": I,
+            "I_B": I_B,
+            "I_V": I_V,
+            "I_C": I_C,
+            "J": J,
+            "K": K,
+            "F": F,
+            "E": E,
+            "A": A,
+            "G": G,
+        },
+        "eligibility": eligibility,
+        "job_params": job_params,
+        "server_params": {
+            "C": C,
+            "theta": theta,
+            "P0": P0,
+            "dP": dP,
+            "alpha": alpha,
+            "lambda0": lambda0,
+            "lambda_pm": lambda_pm,
+            "Lambda": Lambda,
+        },
+        "thermal": {
+            "T_sup": 18.0,
+            "T_busy": 27.0,
+            "T_idle": 35.0,
+            "M_big": 100.0,
+            "D": thermal_matrix,
+        },
+        "cooling": {
+            "eta": eta_values,
+        },
+        "power": {
+            "P_ov": 300.0,
+            "Pi_max": 1.56,
+        },
+        "maintenance": {
+            "d_pm": 8,
+            "c_pm": 50.0,
+            "c_cm": 200.0,
+        },
+        "costs": {
+            "c_e": 0.15,
+            "c_sw": 1.0,
+            "S_max": len(J) * len(K),
+        },
+        "demand": {
+            "D": demand_by_slot,
+            "note": (
+                "Demand is represented directly through individual forecasted jobs. "
+                "The aggregate demand constraint is intentionally not enforced in solver.py."
+            ),
+        },
+        "redundancy": {
+            "N_min": 2,
+            "kappa": 1,
+            "Q_max": 999999.0,
+        },
+        "slot_duration": slot_duration,
+        "metadata": jobs_data.get("metadata", {}),
+    }
+
+    return data
 
 
 def load_data_from_synthetic_parquet(parquet_path: Path) -> Dict[str, Any]:

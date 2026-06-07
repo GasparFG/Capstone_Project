@@ -3,8 +3,8 @@
 import argparse
 from pathlib import Path
 
-from .config import DEFAULT_OUTPUT_ROOT, DEFAULT_PARQUET_INPUT
-from .data_loader import load_data_from_synthetic_parquet
+from .config import DEFAULT_OUTPUT_ROOT, DEFAULT_JOBS_JSON_INPUT
+from .data_loader import load_data_from_jobs_json
 from .scenario_builder import build_scenarios
 from .solver import solve_datacenter_model
 from .utils import ensure_output_dirs
@@ -15,8 +15,11 @@ from .result_extractor import extract_performance_metrics, extract_solution_rows
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the data-centre optimization pipeline.")
-    parser.add_argument("--parquet-input", default=DEFAULT_PARQUET_INPUT,
-                        help="Path to synthetic optimization_input_dataset.parquet input file.")
+    parser.add_argument(
+        "--jobs-json-input",
+        default=DEFAULT_JOBS_JSON_INPUT,
+        help="Path to optimization_jobs_params.json input file.",
+    )
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT,
                         help="Root folder for generated outputs.")
     parser.add_argument("--run-scenarios", action="store_true",
@@ -33,12 +36,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    parquet_path = Path(args.parquet_input)
+    jobs_json_path = Path(args.jobs_json_input)
     output_root = Path(args.output_root)
 
     paths = ensure_output_dirs(output_root)
 
-    base_data = load_data_from_synthetic_parquet(parquet_path)
+    base_data = load_data_from_jobs_json(jobs_json_path)
     scenarios = build_scenarios(base_data, args.run_scenarios)
 
     all_metrics = []

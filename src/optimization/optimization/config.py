@@ -3,6 +3,7 @@
 from gurobipy import GRB
 
 DEFAULT_PARQUET_INPUT = "data/processed/optimization_input_dataset.parquet"
+DEFAULT_JOBS_JSON_INPUT = "data/processed/optimization_jobs_params.json"
 DEFAULT_OUTPUT_ROOT = "."
 
 STATUS_LABELS = {

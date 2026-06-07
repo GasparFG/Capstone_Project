@@ -1,18 +1,18 @@
 section,metric,value
-row_counts,historical_rows_used,10610
-row_counts,forecast_rows_generated,253
+row_counts,historical_rows_used,9690
+row_counts,forecast_rows_generated,190
 time,forecast_horizon_seconds,86400
 time,min_scheduled_seconds,1.0
-time,max_scheduled_seconds,85949.26
+time,max_scheduled_seconds,85768.3
 time,scheduled_seconds_monotonic,True
-job_type_distribution,counts,"{'batch': 152, 'interactive': 101}"
-gpu_request_distribution,counts,"{0: 172, 1: 81}"
-critical_distribution,counts,"{0: 137, 1: 116}"
-replica_distribution,counts,"{1: 137, 2: 116}"
+job_type_distribution,counts,"{'batch': 101, 'interactive': 89}"
+gpu_request_distribution,counts,"{0: 133, 1: 57}"
+critical_distribution,counts,"{1: 169, 0: 21}"
+replica_distribution,counts,"{2: 169, 1: 21}"
 cpu_request,historical_min,2
 cpu_request,historical_max,192
-cpu_request,forecast_min,8.0
-cpu_request,forecast_max,192.0
+cpu_request,forecast_min,2.0
+cpu_request,forecast_max,96.0
 cpu_request,within_historical_range,True
 memory_request,historical_min,16.0
 memory_request,historical_max,1000.0
@@ -20,11 +20,11 @@ memory_request,forecast_min,16.0
 memory_request,forecast_max,960.0
 memory_request,within_historical_range,True
 duration_seconds,historical_min,1.0
-duration_seconds,historical_max,167843.0
-duration_seconds,forecast_min,8.38
-duration_seconds,forecast_max,35171.36
+duration_seconds,historical_max,86396.0
+duration_seconds,forecast_min,7.64
+duration_seconds,forecast_max,23171.34
 duration_seconds,all_positive,True
-app_name,unique_forecast_apps,65
+app_name,unique_forecast_apps,55
 role,unique_forecast_roles,2
 schema,missing_required_columns,[]
 schema,schema_complete,True
