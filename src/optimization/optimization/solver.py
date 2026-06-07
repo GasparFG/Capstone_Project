@@ -64,7 +64,7 @@ def solve_datacenter_model(
     M_big = th["M_big"]
     D = th["D"]
 
-    eta = {k: data["cooling"]["eta"][k] for k in K}
+    eta = data["cooling"]["eta"]
     P_ov = data["power"]["P_ov"]
     Pi_max = data["power"]["Pi_max"]
     d_pm = data["maintenance"]["d_pm"]
