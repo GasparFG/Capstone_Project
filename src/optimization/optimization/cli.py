@@ -3,7 +3,11 @@
 import argparse
 from pathlib import Path
 
-from .config import DEFAULT_OUTPUT_ROOT, DEFAULT_JOBS_JSON_INPUT
+from .config import (
+    DEFAULT_OUTPUT_ROOT,
+    DEFAULT_JOBS_JSON_INPUT,
+    DEFAULT_SERVER_JSON_INPUT,
+)
 from .data_loader import load_data_from_jobs_json
 from .scenario_builder import build_scenarios
 from .solver import solve_datacenter_model
@@ -19,6 +23,11 @@ def parse_args() -> argparse.Namespace:
         "--jobs-json-input",
         default=DEFAULT_JOBS_JSON_INPUT,
         help="Path to optimization_jobs_params.json input file.",
+    )
+    parser.add_argument(
+        "--server-json-input",
+        default=DEFAULT_SERVER_JSON_INPUT,
+        help="Path to server_params_42servers_v3.json input file.",
     )
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT,
                         help="Root folder for generated outputs.")
@@ -37,11 +46,15 @@ def main() -> None:
     args = parse_args()
 
     jobs_json_path = Path(args.jobs_json_input)
+    server_json_path = Path(args.server_json_input)
     output_root = Path(args.output_root)
 
     paths = ensure_output_dirs(output_root)
 
-    base_data = load_data_from_jobs_json(jobs_json_path)
+    base_data = load_data_from_jobs_json(
+        jobs_json_path=jobs_json_path,
+        server_json_path=server_json_path,
+    )
     scenarios = build_scenarios(base_data, args.run_scenarios)
 
     all_metrics = []
