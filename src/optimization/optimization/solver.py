@@ -70,7 +70,7 @@ def solve_datacenter_model(
     d_pm = data["maintenance"]["d_pm"]
     c_pm = data["maintenance"]["c_pm"]
     c_cm = data["maintenance"]["c_cm"]
-    c_e = data["costs"]["c_e"]
+    c_e = {k: data["costs"]["c_e"][k] for k in K}
     c_sw = data["costs"]["c_sw"]
     S_max = data["costs"]["S_max"]
     Dk = {k: data["demand"]["D"][k] for k in K}
@@ -161,7 +161,7 @@ def solve_datacenter_model(
     # -----------------------------
     # 4.4 Objective (#4)
     # -----------------------------
-    energy_cost = c_e * delta_t / 1000.0 * gp.quicksum(Ptot[k] for k in K)
+    energy_cost = delta_t / 1000.0 * gp.quicksum(c_e[k] * Ptot[k] for k in K)
     pm_cost = gp.quicksum(c_pm * m_j[j] for j in J)
     cm_cost = c_cm * gp.quicksum(
         lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * m_j[j] * y[j, k]
