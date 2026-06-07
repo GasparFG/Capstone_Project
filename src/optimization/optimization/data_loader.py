@@ -6,7 +6,10 @@ import math
 import json
 
 
-def load_data_from_jobs_json(jobs_json_path: Path) -> Dict[str, Any]:
+def load_data_from_jobs_json(
+    jobs_json_path: Path,
+    server_json_path: Path,
+) -> Dict[str, Any]:
     """
     Load forecast-translated job parameters and server infrastructure parameters
     from JSON files, then merge them into the complete optimization input
