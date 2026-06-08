@@ -18,6 +18,7 @@ from .utils import write_csv
 def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[str, Path]:
     """Save all output artifacts for one scenario."""
     scenario = result["scenario_name"]
+    timestr = time.strftime("%Y%m%d-%H%M%S")
 
     solution_rows = extract_solution_rows(result)
     hourly_rows = extract_hourly_rows(result)
@@ -27,14 +28,14 @@ def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[st
     server_summary_rows = extract_server_summary(result)
 
     solution_path = paths["optimization"] / \
-        f"optimization_solution_{scenario}.csv"
-    hourly_path = paths["tables"] / f"hourly_energy_thermal_{scenario}.csv"
-    pm_path = paths["tables"] / f"pm_schedule_{scenario}.csv"
+        f"optimization_solution_{scenario}_{timestr}.csv"
+    hourly_path = paths["tables"] / f"hourly_energy_thermal_{scenario}_{timestr}.csv"
+    pm_path = paths["tables"] / f"pm_schedule_{scenario}_{timestr}.csv"
     metrics_path = paths["optimization"] / \
-        f"performance_metrics_{scenario}.csv"
-    server_ts_path = paths["tables"] / f"server_load_timeseries_{scenario}.csv"
-    server_summary_path = paths["optimization"] / f"server_summary_{scenario}.csv"
-    report_path = paths["reports"] / f"optimization_report_{scenario}.txt"
+        f"performance_metrics_{scenario}_{timestr}.csv"
+    server_ts_path = paths["tables"] / f"server_load_timeseries_{scenario}_{timestr}.csv"
+    server_summary_path = paths["optimization"] / f"server_summary_{scenario}_{timestr}.csv"
+    report_path = paths["reports"] / f"optimization_report_{scenario}_{timestr}.txt"
 
     write_csv(
         solution_path,
