@@ -8,6 +8,8 @@ from .result_extractor import (
     extract_hourly_rows,
     extract_pm_rows,
     extract_performance_metrics,
+    extract_server_load_timeseries,
+    extract_server_summary,
 )
 from .utils import write_csv
 
@@ -20,6 +22,8 @@ def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[st
     hourly_rows = extract_hourly_rows(result)
     pm_rows = extract_pm_rows(result)
     metrics_row = extract_performance_metrics(result)
+    server_ts_rows = extract_server_load_timeseries(result)
+    server_summary_rows = extract_server_summary(result)
 
     solution_path = paths["optimization"] / \
         f"optimization_solution_{scenario}.csv"
@@ -27,6 +31,8 @@ def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[st
     pm_path = paths["tables"] / f"pm_schedule_{scenario}.csv"
     metrics_path = paths["optimization"] / \
         f"performance_metrics_{scenario}.csv"
+    server_ts_path = paths["tables"] / f"server_load_timeseries_{scenario}.csv"
+    server_summary_path = paths["optimization"] / f"server_summary_{scenario}.csv"
     report_path = paths["reports"] / f"optimization_report_{scenario}.txt"
 
     write_csv(
@@ -48,6 +54,19 @@ def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[st
             "pm_end_slot", "pm_start_time", "pm_end_time"],
     )
     write_csv(metrics_path, [metrics_row], list(metrics_row.keys()))
+    write_csv(
+        server_ts_path,
+        server_ts_rows,
+        ["scenario", "server_id", "server_type", "slot", "time",
+         "load", "batch_load", "interactive_load", "active", "in_maintenance", "status"],
+    )
+    write_csv(
+        server_summary_path,
+        server_summary_rows,
+        ["scenario", "server_id", "server_type", "slots_active", "avg_load",
+         "max_load", "batch_avg_load", "interactive_avg_load", "utilization_rate_pct",
+         "pm_scheduled", "pm_start_time", "pm_end_time", "final_status"],
+    )
 
     save_text_report(result, metrics_row, solution_rows,
                      hourly_rows, pm_rows, report_path)
@@ -57,6 +76,8 @@ def save_result_files(result: Dict[str, Any], paths: Dict[str, Path]) -> Dict[st
         "hourly": hourly_path,
         "pm": pm_path,
         "metrics": metrics_path,
+        "server_timeseries": server_ts_path,
+        "server_summary": server_summary_path,
         "report": report_path,
     }
 

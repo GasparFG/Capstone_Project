@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--server-json-input",
         default=DEFAULT_SERVER_JSON_INPUT,
-        help="Path to server_params_42servers_v3.json input file.",
+        help="Path to server_params_42servers_v6.json input file.",
     )
     parser.add_argument("--output-root", default=DEFAULT_OUTPUT_ROOT,
                         help="Root folder for generated outputs.")

@@ -20,7 +20,7 @@ def load_data_from_jobs_json(
             data/processed/optimization_jobs_params.json
 
         server_json_path:
-            server_params_42servers_v3.json
+            server_params_42servers_v5.json
     """
 
     if not jobs_json_path.exists():

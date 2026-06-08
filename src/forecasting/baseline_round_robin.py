@@ -105,7 +105,7 @@ RHO_BATCH = 3.0
 RHO_INTER = 5.0
 
 # Server capacity and reservation
-C_J   = 1.0    # Normalized server capacity (1.0 = full capacity)
+C_J   = {j: 1.0 if j < 34 else 0.420139 for j in J_ALL}  # Normalized server capacity (GPU=1.0, CPU=0.420139)
 THETA = 0.30   # Fraction of capacity reserved for interactive jobs.
                # Batch jobs can use at most (1 - THETA) = 70% per slot.
 
@@ -262,11 +262,11 @@ def round_robin_schedule(jobs: pd.DataFrame):
 
         Returns the first feasible slot index, or None if none exists.
         """
-        cap_limit = (1 - THETA) * C_J if is_batch else C_J
+        cap_limit = (1 - THETA) * C_J[j] if is_batch else C_J[j]
         for k in range(release_slot, N_SLOTS - dur + 1):
             feasible = True
             for kk in range(k, k + dur):
-                if load[j][kk] + r_i > C_J + 1e-6:
+                if load[j][kk] + r_i > C_J[j] + 1e-6:
                     feasible = False
                     break
                 if is_batch and batch_load[j][kk] + r_i > cap_limit + 1e-6:
