@@ -256,8 +256,9 @@ def build_jobs_json(jobs: pd.DataFrame) -> dict:
         b[i] = deadline_slot
         q[i] = int(row["replica_count"])
 
+        #interactive jobs are not allowed to be delayed, enforced by the solver. 
         if str(row["job_type"]).lower() == "interactive":
-            rho[i] = 5.0
+            rho[i] = 0
         else:
             rho[i] = 3.0
 

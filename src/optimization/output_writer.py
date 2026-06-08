@@ -1,8 +1,9 @@
 """Write optimization outputs and human-readable reports."""
 
 from pathlib import Path
+from time import time
 from typing import Any, Dict, List
-
+import time
 from .result_extractor import (
     extract_solution_rows,
     extract_hourly_rows,
@@ -150,15 +151,17 @@ def save_text_report(
 
 def save_combined_files(all_metrics: List[Dict[str, Any]], all_solution_rows: List[Dict[str, Any]], paths: Dict[str, Path]) -> None:
     """Save combined files across all scenarios."""
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+
     if all_metrics:
-        write_csv(paths["optimization"] / "performance_metrics.csv",
+        write_csv(paths["optimization"] / f"performance_metrics_{timestr}.csv",
                   all_metrics, list(all_metrics[0].keys()))
-        write_csv(paths["tables"] / "performance_metrics.csv",
+        write_csv(paths["tables"] / f"performance_metrics_{timestr}.csv",
                   all_metrics, list(all_metrics[0].keys()))
 
     if all_solution_rows:
         write_csv(
-            paths["optimization"] / "optimization_solution.csv",
+            paths["optimization"] / f"optimization_solution_{timestr}.csv",
             all_solution_rows,
             ["scenario", "job_id", "job_type", "is_critical", "server_id",
                 "start_slot", "end_slot", "start_time", "end_time", "duration_hours"],

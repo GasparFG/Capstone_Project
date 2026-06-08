@@ -55,7 +55,7 @@ def solve_datacenter_model(
     alpha = {int(k): v for k, v in sp["alpha"].items()}
     lambda0 = {int(k): v for k, v in sp["lambda0"].items()}
     lambda_pm = {int(k): v for k, v in sp["lambda_pm"].items()}
-    Lambda = {int(k): v for k, v in sp["Lambda"].items()}
+#    Lambda = {int(k): v for k, v in sp["Lambda"].items()}
 
     th = data["thermal"]
     T_sup = th["T_sup"]
@@ -116,6 +116,11 @@ def solve_datacenter_model(
     mdl = gp.Model(f"datacenter_1day_{scenario_name}", env=env)
     mdl.setParam("TimeLimit", time_limit)
     mdl.setParam("MIPGap", mip_gap)
+    mdl.setParam("Presolve", 2)       # aggressive presolve
+    mdl.setParam("MIPFocus", 1)       # focus on finding feasible solutions fast
+    mdl.setParam("Cuts", 2)           # aggressive cuts
+    mdl.setParam("Heuristics", 0.3)   # more time on heuristics early
+    mdl.setParam("Threads", 0)        # use all available cores
     if not verbose:
         mdl.setParam("OutputFlag", 0)
 
@@ -145,15 +150,15 @@ def solve_datacenter_model(
 
 
     l_var = {i: mdl.addVar(lb=0.0, name=f"l_{i}") for i in I_B}
-    L = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"L_{j}_{k}")
+    L = {(j, k): mdl.addVar(lb=0.0, ub=GRB.INFINITY, name=f"L_{j}_{k}")
          for j in J for k in K}
     H = {(j, k): mdl.addVar(lb=0.0, name=f"H_{j}_{k}") for j in J for k in K}
     PIT = {k: mdl.addVar(lb=0.0, name=f"PIT_{k}") for k in K}
     Pcool = {k: mdl.addVar(lb=0.0, name=f"Pcool_{k}") for k in K}
     Ptot = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}") for k in K}
     s = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
-    psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
-           for j in J for k in K}
+    #psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
+    #       for j in J for k in K}
 
 
     mdl.update()
@@ -194,15 +199,12 @@ def solve_datacenter_model(
                       name=f"c8_{i_pred}_{i_succ}")
 
     # --- Start-time definition ---
-    # s[i] >= k iff job i starts at slot k on any server.
-    # Divide by q[i] because critical jobs place q[i] replicas at the same slot,
-    # so sum_j X[i,j,k] == q[i] (not 1) when the job starts at k.
+    # to capture the latest start among all replicas since staggering is allowed in the model
+    # not all replicas start at the same time
     for i in I:
-        for k in valid_starts(i):
-            mdl.addConstr(
-                s[i] >= k * gp.quicksum(X[i, j, k] for j in S[i]) / q[i],
-                name=f"cs_{i}_{k}",
-            )
+        for j in S[i]:
+            for k in valid_starts(i):
+                mdl.addConstr(s[i] >= k * X[i, j, k], name=f"cs_{i}_{j}_{k}")
 
     # --- #9 Batch-only capacity (interactive reservation) ---
     for j in J:
@@ -264,7 +266,7 @@ def solve_datacenter_model(
 
     # --- #17 Cooling power ---
     for k in K:
-        mdl.addConstr(Pcool[k] == (1.0 / eta[k]) *
+        mdl.addConstr(Pcool[k] == (1.0 / eta[0]) *
                       gp.quicksum(H[j, k] for j in J), name=f"c17_{k}")
 
     # --- #18 Total facility power ---
@@ -307,19 +309,19 @@ def solve_datacenter_model(
                       <= len(J) - N_min, name=f"c24_{k}")
 
     # --- #25 Cumulative load ---
-    for j in J:
-        for k in K:
-            if k == 0:
-                mdl.addConstr(psi[j, k] == L[j, k], name=f"c25_{j}_{k}")
-            else:
-                mdl.addConstr(psi[j, k] == psi[j, k - 1] +
-                              L[j, k], name=f"c25_{j}_{k}")
+    #for j in J:
+    #    for k in K:
+    #        if k == 0:
+    #            mdl.addConstr(psi[j, k] == L[j, k], name=f"c25_{j}_{k}")
+    #        else:
+    #            mdl.addConstr(psi[j, k] == psi[j, k - 1] +
+    #                          L[j, k], name=f"c25_{j}_{k}")
 
     # --- #26 PM may only start once cumulative load reaches threshold ---
-    for j in J:
-        for k in pm_starts:
-            mdl.addConstr(psi[j, k] >= Lambda[j] *
-                          v[j, k], name=f"c26_{j}_{k}")
+    # for j in J:
+    #     for k in pm_starts:
+    #         mdl.addConstr(psi[j, k] >= Lambda[j] *
+    #                       v[j, k], name=f"c26_{j}_{k}")
 
     # --- #27/#28 Server state-change tracking ---
     for j in J:
@@ -450,7 +452,7 @@ def solve_datacenter_model(
             "Pcool": Pcool,
             "Ptot": Ptot,
             "s": s,
-            "psi": psi,
+#            "psi": psi,
         },
         "objective_terms": {
             "energy_cost": energy_cost,

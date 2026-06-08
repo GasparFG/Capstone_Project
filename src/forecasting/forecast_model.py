@@ -594,8 +594,8 @@ def prepare_optimization_output(forecast: pd.DataFrame) -> pd.DataFrame:
 
     optimization["is_critical"] = (
         (optimization["gpu_request"] == 1)
-        | (optimization["cpu_request"] >= cpu_threshold)
-        | (optimization["memory_request"] >= memory_threshold)
+        | (optimization["cpu_request"] > cpu_threshold)
+        | (optimization["memory_request"] > memory_threshold)
     ).astype(int)
 
     optimization["replica_count"] = np.where(

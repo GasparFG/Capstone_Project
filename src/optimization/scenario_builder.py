@@ -23,7 +23,8 @@ def build_scenarios(base_data: Dict[str, Any], run_scenarios: bool) -> Dict[str,
     scenarios["high_demand_25pct"] = high_demand
 
     high_energy = copy.deepcopy(base_data)
-    high_energy["costs"]["c_e"] = float(high_energy["costs"]["c_e"]) * 1.50
+    high_energy["costs"]["c_e"] = [
+        float(x) * 1.50 for x in high_energy["costs"]["c_e"]]
     scenarios["high_energy_cost_50pct"] = high_energy
 
     reduced_capacity = copy.deepcopy(base_data)

@@ -9,6 +9,7 @@ from .config import (
     DEFAULT_SERVER_JSON_INPUT,
 )
 from .data_loader import load_data_from_jobs_json
+from .build_jobs_json_from_forecast import main as build_jobs_json_from_forecast
 from .scenario_builder import build_scenarios
 from .solver import solve_datacenter_model
 from .utils import ensure_output_dirs
@@ -50,6 +51,8 @@ def main() -> None:
     output_root = Path(args.output_root)
 
     paths = ensure_output_dirs(output_root)
+    print("\nBuilding optimization jobs JSON from forecast output...")
+    build_jobs_json_from_forecast()
 
     base_data = load_data_from_jobs_json(
         jobs_json_path=jobs_json_path,
