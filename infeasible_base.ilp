@@ -1,0 +1,9 @@
+\ Model datacenter_1day_base_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+\ Signature: 0x267ae670d662c28f
+Minimize
+ 
+Subject To
+ c5_170: = 2
+Bounds
+End

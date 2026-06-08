@@ -6,6 +6,18 @@ import math
 import json
 
 
+def _normalize_cooling(cooling, K):
+    """Ensure cooling["eta"] is always a dict keyed by slot index."""
+    eta = cooling.get("eta")
+    if isinstance(eta, (int, float)):
+        cooling = dict(cooling)
+        cooling["eta"] = {k: float(eta) for k in K}
+    elif isinstance(eta, list):
+        cooling = dict(cooling)
+        cooling["eta"] = {k: float(eta[k]) for k in K}
+    return cooling
+
+
 def load_data_from_jobs_json(
     jobs_json_path: Path,
     server_json_path: Path,
@@ -203,7 +215,7 @@ def load_data_from_jobs_json(
 
         "thermal": server_data["thermal"],
 
-        "cooling": server_data["cooling"],
+        "cooling": _normalize_cooling(server_data["cooling"], K),
 
         "power": server_data["power"],
 
