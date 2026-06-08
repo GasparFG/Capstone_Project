@@ -174,6 +174,8 @@ def build_eligibility(jobs: pd.DataFrame) -> dict[int, list[int]]:
     for i, row in jobs.iterrows():
         if int(row["gpu_request"]) == 1:
             eligibility[int(i)] = GPU_SERVERS
+        else:
+            eligibility[int(i)] = CPU_SERVERS + GPU_SERVERS
 
 
     return eligibility
