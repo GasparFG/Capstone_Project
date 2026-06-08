@@ -13,9 +13,20 @@ fidelity.
 Constraint numbers #5-#36 are kept as comments for cross-referencing.
 """
 
+from gurobipy import GRB
 import json
 import gurobipy as gp
-from gurobipy import GRB
+
+params = {
+    "WLSACCESSID": "fc17fa3a-ef7f-41d2-b95c-20c3b221a483",
+    "WLSSECRET": "6bee54d1-5c9f-4f12-9d64-0c7b16e0dd52",
+    "LICENSEID": 2804943
+}
+env = gp.Env(params=params)
+
+# create the model within
+# model = gp.Model(env=env)
+
 
 # ---------------------------------------------------------------------------
 # 1.  Load data
@@ -23,61 +34,62 @@ from gurobipy import GRB
 with open("data.json") as f:
     data = json.load(f)
 
-I   = data["sets"]["I"]
+I = data["sets"]["I"]
 I_B = data["sets"]["I_B"]
 I_V = data["sets"]["I_V"]
 I_C = data["sets"]["I_C"]
-J   = data["sets"]["J"]
-K   = data["sets"]["K"]
-F   = data["sets"]["F"]
-E   = data["sets"]["E"]
-A   = data["sets"]["A"]
-G   = data["sets"]["G"]
-S   = {int(k): v for k, v in data["eligibility"].items()}
+J = data["sets"]["J"]
+K = data["sets"]["K"]
+F = data["sets"]["F"]
+E = data["sets"]["E"]
+A = data["sets"]["A"]
+G = data["sets"]["G"]
+S = {int(k): v for k, v in data["eligibility"].items()}
 
-jp       = data["job_params"]
-d        = {int(k): v for k, v in jp["d"].items()}
-r        = {int(k): v for k, v in jp["r"].items()}
-a        = {int(k): v for k, v in jp["a"].items()}
-b        = {int(k): v for k, v in jp["b"].items()}
-q        = {int(k): v for k, v in jp["q"].items()}
-rho      = {int(k): v for k, v in jp["rho"].items()}
+jp = data["job_params"]
+d = {int(k): v for k, v in jp["d"].items()}
+r = {int(k): v for k, v in jp["r"].items()}
+a = {int(k): v for k, v in jp["a"].items()}
+b = {int(k): v for k, v in jp["b"].items()}
+q = {int(k): v for k, v in jp["q"].items()}
+rho = {int(k): v for k, v in jp["rho"].items()}
+
 for i in I:
     if i not in q:
         q[i] = 1
 
-sp        = data["server_params"]
-C         = {int(k): v for k, v in sp["C"].items()}
-theta     = {int(k): v for k, v in sp["theta"].items()}
-P0        = {int(k): v for k, v in sp["P0"].items()}
-dP        = {int(k): v for k, v in sp["dP"].items()}
-alpha     = {int(k): v for k, v in sp["alpha"].items()}
-lambda0   = {int(k): v for k, v in sp["lambda0"].items()}
+sp = data["server_params"]
+C = {int(k): v for k, v in sp["C"].items()}
+theta = {int(k): v for k, v in sp["theta"].items()}
+P0 = {int(k): v for k, v in sp["P0"].items()}
+dP = {int(k): v for k, v in sp["dP"].items()}
+alpha = {int(k): v for k, v in sp["alpha"].items()}
+lambda0 = {int(k): v for k, v in sp["lambda0"].items()}
 lambda_pm = {int(k): v for k, v in sp["lambda_pm"].items()}
-Lambda    = {int(k): v for k, v in sp["Lambda"].items()}
+Lambda = {int(k): v for k, v in sp["Lambda"].items()}
 
-th     = data["thermal"]
-T_sup  = th["T_sup"]
+th = data["thermal"]
+T_sup = th["T_sup"]
 T_busy = th["T_busy"]
 T_idle = th["T_idle"]
-M_big  = th["M_big"]
-D      = th["D"]
+M_big = th["M_big"]
+D = th["D"]
 
-eta  = {k: data["cooling"]["eta"][k] for k in K}
-P_ov    = data["power"]["P_ov"]
-Pi_max  = data["power"]["Pi_max"]
-d_pm    = data["maintenance"]["d_pm"]
-c_pm    = data["maintenance"]["c_pm"]
-c_cm    = data["maintenance"]["c_cm"]
-c_e     = data["costs"]["c_e"]
-c_sw    = data["costs"]["c_sw"]
-S_max   = data["costs"]["S_max"]
-Dk      = {k: data["demand"]["D"][k] for k in K}
-N_min   = data["redundancy"]["N_min"]
-kappa   = data["redundancy"]["kappa"]
-Q_max   = data["redundancy"]["Q_max"]
+eta = {k: data["cooling"]["eta"][k] for k in K}
+P_ov = data["power"]["P_ov"]
+Pi_max = data["power"]["Pi_max"]
+d_pm = data["maintenance"]["d_pm"]
+c_pm = data["maintenance"]["c_pm"]
+c_cm = data["maintenance"]["c_cm"]
+c_e = data["costs"]["c_e"]
+c_sw = data["costs"]["c_sw"]
+S_max = data["costs"]["S_max"]
+Dk = {k: data["demand"]["D"][k] for k in K}
+N_min = data["redundancy"]["N_min"]
+kappa = data["redundancy"]["kappa"]
+Q_max = data["redundancy"]["Q_max"]
 delta_t = data["slot_duration"]
-nK      = len(K)
+nK = len(K)
 
 
 def slot_to_time(k):
@@ -103,7 +115,7 @@ def running_at(job, j, k):
 # ---------------------------------------------------------------------------
 # 2.  Build model
 # ---------------------------------------------------------------------------
-mdl = gp.Model("datacenter_1day")
+mdl = gp.Model("datacenter_1day",env=env)
 mdl.setParam("TimeLimit", 120)
 mdl.setParam("MIPGap",    0.02)
 
@@ -116,34 +128,35 @@ X = {(i, j, k): mdl.addVar(vtype=GRB.BINARY, name=f"X_{i}_{j}_{k}")
 y = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"y_{j}_{k}")
      for j in J for k in K}
 
-d_on  = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"don_{j}_{k}")
-         for j in J for k in K[:-1]}
+d_on = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"don_{j}_{k}")
+        for j in J for k in K[:-1]}
 d_off = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"doff_{j}_{k}")
          for j in J for k in K[:-1]}
 
 m_j = {j: mdl.addVar(vtype=GRB.BINARY, name=f"m_{j}") for j in J}
 
+# All possible starts for preventive maintenance
 pm_starts = [k for k in K if k <= nK - d_pm]
+
 v = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"v_{j}_{k}")
      for j in J for k in pm_starts}
+
 
 z = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"z_{j}_{k}")
      for j in J for k in K}
 
-mk = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"mk_{j}_{k}")
-      for j in J for k in K}
-
 l_var = {i: mdl.addVar(lb=0.0, name=f"l_{i}") for i in I_B}
 
-L   = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"L_{j}_{k}")
-       for j in J for k in K}
-H   = {(j, k): mdl.addVar(lb=0.0, name=f"H_{j}_{k}")
-       for j in J for k in K}
-PIT   = {k: mdl.addVar(lb=0.0, name=f"PIT_{k}")   for k in K}
+L = {(j, k): mdl.addVar(lb=0.0, ub=1.0, name=f"L_{j}_{k}")
+     for j in J for k in K}
+H = {(j, k): mdl.addVar(lb=0.0, name=f"H_{j}_{k}")
+     for j in J for k in K}
+PIT = {k: mdl.addVar(lb=0.0, name=f"PIT_{k}") for k in K}
 Pcool = {k: mdl.addVar(lb=0.0, name=f"Pcool_{k}") for k in K}
-Ptot  = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}")  for k in K}
+Ptot = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}") for k in K}
 
-s   = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
+s = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
+
 psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
        for j in J for k in K}
 
@@ -153,13 +166,13 @@ mdl.update()
 # 4.  Objective  (#4)
 # ---------------------------------------------------------------------------
 energy_cost = c_e * delta_t / 1000.0 * gp.quicksum(Ptot[k] for k in K)
-pm_cost     = gp.quicksum(c_pm * m_j[j] for j in J)
-cm_cost     = c_cm * gp.quicksum(
-                  lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * mk[j, k]
-                  for j in J for k in K)
-sw_cost     = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]
-                                  for j in J for k in K[:-1])
-late_cost   = gp.quicksum(rho[i] * l_var[i] for i in I_B)
+pm_cost = gp.quicksum(c_pm * m_j[j] for j in J)
+cm_cost = c_cm * gp.quicksum(
+    lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * m_j[j] * y[j, k]
+    for j in J for k in K)
+sw_cost = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]
+                             for j in J for k in K[:-1])
+late_cost = gp.quicksum(rho[i] * l_var[i] for i in I_B)
 
 mdl.setObjective(energy_cost + pm_cost + cm_cost + sw_cost + late_cost,
                  GRB.MINIMIZE)
@@ -178,13 +191,16 @@ for i in I:
 
 # --- #8  Precedence ---
 for (i_pred, i_succ) in E:
-    mdl.addConstr(s[i_succ] >= s[i_pred] + d[i_pred], name=f"c8_{i_pred}_{i_succ}")
+    mdl.addConstr(s[i_succ] >= s[i_pred] + d[i_pred],
+                  name=f"c8_{i_pred}_{i_succ}")
 
 # --- Start-time definition ---
 for i in I:
-    mdl.addConstr(
-        s[i] == gp.quicksum(k * X[i, j, k] for j in S[i] for k in valid_starts(i)),
-        name=f"cs_{i}")
+    for k in valid_starts(i):
+        mdl.addConstr(
+            s[i] >= gp.quicksum(k * X[i, j, k]
+                            for j in S[i]),
+                     name=f"cs_{i}")
 
 # --- #9  Batch-only capacity (interactive reservation) ---
 for j in J:
@@ -260,7 +276,8 @@ for j in J:
             D[j][jp] * alpha[jp] * (P0[jp] * y[jp, k] + dP[jp] * L[jp, k])
             for jp in J)
         mdl.addConstr(
-            T_sup + recirc <= T_idle - (T_idle - T_busy) * y[j, k] + M_big * z[j, k],
+            T_sup + recirc <= T_idle -
+            (T_idle - T_busy) * y[j, k] + M_big * z[j, k],
             name=f"c21_{j}_{k}")
 
 # --- #22  PM count per server ---
@@ -289,7 +306,8 @@ for j in J:
         if k == 0:
             mdl.addConstr(psi[j, k] == L[j, k], name=f"c25_{j}_{k}")
         else:
-            mdl.addConstr(psi[j, k] == psi[j, k - 1] + L[j, k], name=f"c25_{j}_{k}")
+            mdl.addConstr(psi[j, k] == psi[j, k - 1] +
+                          L[j, k], name=f"c25_{j}_{k}")
 
 # --- #26  PM may only start once cumulative load >= Lambda ---
 for j in J:
@@ -299,8 +317,10 @@ for j in J:
 # --- #27/#28  Server state-change tracking ---
 for j in J:
     for k in K[:-1]:
-        mdl.addConstr(y[j, k + 1] - y[j, k] <= d_on[j, k],  name=f"c27_{j}_{k}")
-        mdl.addConstr(y[j, k] - y[j, k + 1] <= d_off[j, k], name=f"c28_{j}_{k}")
+        mdl.addConstr(y[j, k + 1] - y[j, k] <=
+                      d_on[j, k],  name=f"c27_{j}_{k}")
+        mdl.addConstr(y[j, k] - y[j, k + 1] <=
+                      d_off[j, k], name=f"c28_{j}_{k}")
 
 # --- #29  Total switching budget ---
 mdl.addConstr(
@@ -323,8 +343,10 @@ for (i1, i2) in G:
 # --- #32  Affinity: same server ---
 for (i1, i2) in A:
     for j in J:
-        s1 = gp.quicksum(X[i1, j, k] for k in valid_starts(i1) if (i1, j, k) in X)
-        s2 = gp.quicksum(X[i2, j, k] for k in valid_starts(i2) if (i2, j, k) in X)
+        s1 = gp.quicksum(X[i1, j, k]
+                         for k in valid_starts(i1) if (i1, j, k) in X)
+        s2 = gp.quicksum(X[i2, j, k]
+                         for k in valid_starts(i2) if (i2, j, k) in X)
         mdl.addConstr(s1 == s2, name=f"c32_{i1}_{i2}_{j}")
 
 # --- #33  Affinity critical pairs: same replica count (data check) ---
@@ -352,19 +374,14 @@ mdl.addConstr(
     gp.quicksum((q[i] - 1) * r[i] for i in I_C) <= Q_max,
     name="c36")
 
-# --- McCormick linearisation: mk[j,k] = m_j[j] * y[j,k] ---
-for j in J:
-    for k in K:
-        mdl.addConstr(mk[j, k] <= m_j[j],               name=f"mc1_{j}_{k}")
-        mdl.addConstr(mk[j, k] <= y[j, k],               name=f"mc2_{j}_{k}")
-        mdl.addConstr(mk[j, k] >= m_j[j] + y[j, k] - 1, name=f"mc3_{j}_{k}")
-
 # --- Non-critical anti-affinity: can't share a server ---
 for (i1, i2) in G:
     if not (i1 in I_C and i2 in I_C):
         for j in J:
-            lhs = gp.quicksum(X[i1, j, k] for k in valid_starts(i1) if (i1, j, k) in X)
-            rhs = gp.quicksum(X[i2, j, k] for k in valid_starts(i2) if (i2, j, k) in X)
+            lhs = gp.quicksum(X[i1, j, k]
+                              for k in valid_starts(i1) if (i1, j, k) in X)
+            rhs = gp.quicksum(X[i2, j, k]
+                              for k in valid_starts(i2) if (i2, j, k) in X)
             mdl.addConstr(lhs + rhs <= 1, name=f"c_nca_{i1}_{i2}_{j}")
 
 # ---------------------------------------------------------------------------
@@ -403,7 +420,7 @@ if mdl.status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) and mdl.SolCount 
         for j in S[i]:
             for k in valid_starts(i):
                 if (i, j, k) in X and X[i, j, k].X > 0.5:
-                    tag  = "batch" if i in I_B else "interactive"
+                    tag = "batch" if i in I_B else "interactive"
                     crit = " [CRIT]" if i in I_C else "       "
                     print(f"  {i:>3}  {tag:>8}{crit}  {j:>3}  "
                           f"{slot_to_time(k):>5}  {slot_to_time(k + d[i]):>5}  "
@@ -428,7 +445,8 @@ if mdl.status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) and mdl.SolCount 
     for j in J:
         if m_j[j].X > 0.5:
             starts = [k for k in pm_starts if v[j, k].X > 0.5]
-            windows = [f"{slot_to_time(k)}–{slot_to_time(k + d_pm)}" for k in starts]
+            windows = [
+                f"{slot_to_time(k)}–{slot_to_time(k + d_pm)}" for k in starts]
             print(f"  Server {j}: PM window {windows}  "
                   f"(failure rate {lambda0[j]:.3f} -> {lambda_pm[j]:.3f})")
         else:
@@ -440,11 +458,11 @@ if mdl.status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL) and mdl.SolCount 
           f"{'PUE':>5}  {'COP':>4}  {'Srv on':>6}")
     print("  " + "-" * 58)
     for k in K:
-        pit   = PIT[k].X
-        pcl   = Pcool[k].X
-        ptot  = Ptot[k].X
-        pue   = ptot / pit if pit > 1e-6 else float("nan")
-        n_on  = sum(1 for j in J if y[j, k].X > 0.5)
+        pit = PIT[k].X
+        pcl = Pcool[k].X
+        ptot = Ptot[k].X
+        pue = ptot / pit if pit > 1e-6 else float("nan")
+        n_on = sum(1 for j in J if y[j, k].X > 0.5)
         total_kwh += ptot * delta_t / 1000
         print(f"  {k:>2}  {pit:>8.1f}  {pcl:>9.1f}  {ptot:>8.1f}  "
               f"{pue:>5.3f}  {eta[k]:>4.1f}  {n_on:>6}")

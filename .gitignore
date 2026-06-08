@@ -16,3 +16,6 @@ models/forecasting/*.pkl
 
 # JSON files
 *.json
+
+outputs/*
+results/*
