@@ -106,6 +106,31 @@ def clean_forecast_jobs(df: pd.DataFrame) -> pd.DataFrame:
 
     jobs = jobs.sort_values("release_seconds").reset_index(drop=True)
 
+    # Drop jobs that cannot complete within the 24-hour horizon.
+    # A job is infeasible if its release slot + duration exceeds the last slot.
+    release_slots = (jobs["release_seconds"] // SLOT_SECONDS).clip(0, HORIZON_SLOTS - 1).astype(int)
+    duration_slots = ((jobs["processing_duration_seconds"] + SLOT_SECONDS - 1) // SLOT_SECONDS).astype(int).clip(lower=1)
+    fits_in_horizon = (release_slots + duration_slots) <= HORIZON_SLOTS
+    n_dropped = (~fits_in_horizon).sum()
+    if n_dropped > 0:
+        print(f"  Dropping {n_dropped} jobs that cannot complete within the 96-slot horizon.")
+    jobs = jobs[fits_in_horizon].reset_index(drop=True)
+
+    # Drop batch jobs whose resource requirement exceeds the batch capacity cap.
+    # Batch jobs are restricted to (1 - THETA) * C_server capacity.
+    # GPU server cap = (1 - 0.30) * 1.0 = 0.70 (binding limit for all servers).
+    # A batch job with r >= 0.70 cannot be placed on any server.
+    THETA = 0.30
+    C_GPU_MAX = 1.0  # normalized capacity of GPU servers (highest-capacity servers)
+    batch_cap = (1 - THETA) * C_GPU_MAX  # 0.70
+    is_batch = jobs.get("job_type", pd.Series("batch", index=jobs.index)) == "batch"
+    # Compute r here to check feasibility (same formula used in build_resource_requirements)
+    r_check = (0.5 * jobs["cpu_request"] / 128 + 0.5 * jobs["memory_request"] / 1024).clip(upper=1.0)
+    oversized_batch = is_batch & (r_check >= batch_cap)
+    n_oversized = oversized_batch.sum()
+    if n_oversized > 0:
+        print(f"  Dropping {n_oversized} batch jobs with r >= {batch_cap:.2f} (exceed batch server capacity).")
+    jobs = jobs[~oversized_batch].reset_index(drop=True)
 
     return jobs
 

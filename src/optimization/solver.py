@@ -194,12 +194,14 @@ def solve_datacenter_model(
                       name=f"c8_{i_pred}_{i_succ}")
 
     # --- Start-time definition ---
+    # s[i] >= k iff job i starts at slot k on any server.
+    # Divide by q[i] because critical jobs place q[i] replicas at the same slot,
+    # so sum_j X[i,j,k] == q[i] (not 1) when the job starts at k.
     for i in I:
         for k in valid_starts(i):
             mdl.addConstr(
-                s[i] >= gp.quicksum(k * X[i, j, k]
-                                    for j in S[i] ),
-                name=f"cs_{i}",
+                s[i] >= k * gp.quicksum(X[i, j, k] for j in S[i]) / q[i],
+                name=f"cs_{i}_{k}",
             )
 
     # --- #9 Batch-only capacity (interactive reservation) ---
