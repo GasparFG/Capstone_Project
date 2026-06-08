@@ -28,7 +28,6 @@ HORIZON_SLOTS = 96
 GPU_SERVERS = list(range(0, 34))
 CPU_SERVERS = list(range(34, 42))
 
-MAX_OPTIMIZATION_JOBS = 300
 
 
 def load_forecast_jobs(input_path: Path) -> pd.DataFrame:
@@ -107,7 +106,6 @@ def clean_forecast_jobs(df: pd.DataFrame) -> pd.DataFrame:
 
     jobs = jobs.sort_values("release_seconds").reset_index(drop=True)
 
-    jobs = jobs.head(MAX_OPTIMIZATION_JOBS).copy()
 
     return jobs
 
@@ -147,8 +145,8 @@ def build_resource_requirements(jobs: pd.DataFrame) -> dict[int, float]:
     This combines CPU and memory demand using equal weight.
     """
 
-    max_cpu = max(float(jobs["cpu_request"].max()), 1.0)
-    max_memory = max(float(jobs["memory_request"].max()), 1.0)
+    max_cpu = 128 #cores (from server parameters based on G type server with highest CPU capacity)
+    max_memory = 1024  # GB (from server parameters based on G type server with highest RAM capacity)
 
     resource_requirement = {}
 
@@ -169,7 +167,6 @@ def build_eligibility(jobs: pd.DataFrame) -> dict[int, list[int]]:
     Build server eligibility.
 
     GPU jobs can run on GPU servers.
-    CPU-only jobs can run on CPU servers.
     """
 
     eligibility = {}
@@ -177,8 +174,7 @@ def build_eligibility(jobs: pd.DataFrame) -> dict[int, list[int]]:
     for i, row in jobs.iterrows():
         if int(row["gpu_request"]) == 1:
             eligibility[int(i)] = GPU_SERVERS
-        else:
-            eligibility[int(i)] = CPU_SERVERS
+
 
     return eligibility
 
@@ -284,7 +280,6 @@ def build_jobs_json(jobs: pd.DataFrame) -> dict:
             "slot_duration_hours": SLOT_SECONDS / 3600,
             "horizon_seconds": HORIZON_SECONDS,
             "horizon_slots": HORIZON_SLOTS,
-            "max_optimization_jobs": MAX_OPTIMIZATION_JOBS,
             "jobs_exported": len(jobs),
             "gpu_servers": GPU_SERVERS,
             "cpu_servers": CPU_SERVERS,
