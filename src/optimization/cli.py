@@ -15,6 +15,7 @@ from .solver import solve_datacenter_model
 from .utils import ensure_output_dirs
 from .output_writer import save_result_files, save_combined_files, print_console_summary
 from .result_extractor import extract_performance_metrics, extract_solution_rows
+from .update_psi_0 import update_psi_0
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,6 +76,11 @@ def main() -> None:
         all_metrics.append(extract_performance_metrics(result))
         all_solution_rows.extend(extract_solution_rows(result))
         print_console_summary(result, saved_files)
+
+        # Update psi_0 only from the base scenario so that the inherited wear
+        # reflects the real daily workload, not a stress-test perturbation.
+        if scenario_name == "base":
+            update_psi_0(result, server_json_path)
 
     save_combined_files(all_metrics, all_solution_rows, paths)
 

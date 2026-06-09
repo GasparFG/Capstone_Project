@@ -55,7 +55,13 @@ def solve_datacenter_model(
     alpha = {int(k): v for k, v in sp["alpha"].items()}
     lambda0 = {int(k): v for k, v in sp["lambda0"].items()}
     lambda_pm = {int(k): v for k, v in sp["lambda_pm"].items()}
-#    Lambda = {int(k): v for k, v in sp["Lambda"].items()}
+    Lambda = {int(k): v for k, v in sp["Lambda"].items()}
+
+    # psi_0[j]: accumulated load since last PM at the start of this horizon (k=0).
+    # Loaded from server_params if present; defaults to 0.0 (fresh or recently maintained).
+    # This parameter carries wear history across daily optimization cycles.
+    psi_0_raw = sp.get("psi_0", {})
+    psi_0 = {j: float(psi_0_raw.get(str(j), psi_0_raw.get(j, 0.0))) for j in J}
 
     th = data["thermal"]
     T_sup = th["T_sup"]
@@ -157,8 +163,17 @@ def solve_datacenter_model(
     Pcool = {k: mdl.addVar(lb=0.0, name=f"Pcool_{k}") for k in K}
     Ptot = {k: mdl.addVar(lb=0.0, name=f"Ptot_{k}") for k in K}
     s = {i: mdl.addVar(lb=0.0, ub=nK - 1, name=f"s_{i}") for i in I}
-    #psi = {(j, k): mdl.addVar(lb=0.0, name=f"psi_{j}_{k}")
-    #       for j in J for k in K}
+
+    # M_psi: tight upper bound for cumulative wear psi[j,k] and auxiliary w[j,k].
+    # Worst case: server runs at full capacity every slot from maximum inherited load.
+    M_psi = max(psi_0.values(), default=0.0) + nK * max(C.values())
+    psi = {(j, k): mdl.addVar(lb=0.0, ub=M_psi, name=f"psi_{j}_{k}")
+           for j in J for k in K}
+    # w[j,k]: pre-reset accumulation = psi[j,k-1] + L[j,k].
+    # Separating w from psi allows a clean linearisation of the conditional
+    # reset without creating contradictory equality/inequality pairs on psi.
+    w = {(j, k): mdl.addVar(lb=0.0, ub=M_psi, name=f"w_{j}_{k}")
+         for j in J for k in K}
 
 
     mdl.update()
@@ -168,8 +183,12 @@ def solve_datacenter_model(
     # -----------------------------
     energy_cost = delta_t * gp.quicksum(c_e[k] * Ptot[k] for k in K)
     pm_cost = gp.quicksum(c_pm * m_j[j] for j in J)
+    # CM cost: scales with normalized accumulated wear psi[j,k] / Lambda[j].
+    # A server at full wear (psi = Lambda) has failure rate lambda0[j];
+    # a freshly maintained server has near-zero risk. This creates a genuine
+    # economic incentive to schedule PM when wear is high across cycles.
     cm_cost = c_cm * gp.quicksum(
-        lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * m_j[j] * y[j, k]
+        lambda0[j] * (psi[j, k] / Lambda[j]) * y[j, k]
         for j in J for k in K
     )
     sw_cost = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]
@@ -308,20 +327,54 @@ def solve_datacenter_model(
         mdl.addConstr(gp.quicksum(z[j, k] for j in J)
                       <= len(J) - N_min, name=f"c24_{k}")
 
-    # --- #25 Cumulative load ---
-    #for j in J:
-    #    for k in K:
-    #        if k == 0:
-    #            mdl.addConstr(psi[j, k] == L[j, k], name=f"c25_{j}_{k}")
-    #        else:
-    #            mdl.addConstr(psi[j, k] == psi[j, k - 1] +
-    #                          L[j, k], name=f"c25_{j}_{k}")
+    # --- #25 Cumulative wear with psi_0 and linearised conditional reset ---
+    #
+    # Goal: psi[j,k] = (psi[j,k-1] + L[j,k]) * (1 - z[j,k])
+    #   i.e. accumulate load every slot, but reset to 0 whenever the server
+    #   is under PM (z[j,k]=1).  The product is non-linear, so we introduce
+    #   auxiliary variable w[j,k] = pre-reset accumulation and linearise:
+    #
+    #   w[j,k]   = psi_0[j] + L[j,0]            if k == 0      (c25w_init)
+    #   w[j,k]   = psi[j,k-1] + L[j,k]          if k  > 0      (c25w)
+    #   psi[j,k] <= w[j,k]                                       (c25a)
+    #   psi[j,k] <= M_psi * (1 - z[j,k])                        (c25b)
+    #   psi[j,k] >= w[j,k] - M_psi * z[j,k]                    (c25c)
+    #
+    # When z[j,k]=0: c25b is inactive, c25a+c25c force psi[j,k] = w[j,k].
+    # When z[j,k]=1: c25b forces psi[j,k] = 0, c25c is inactive (RHS <= 0).
+    # There is no contradictory equality: w always equals the raw accumulation
+    # and psi is the reset-gated version.
+    for j in J:
+        for k in K:
+            if k == 0:
+                mdl.addConstr(
+                    w[j, k] == psi_0[j] + L[j, k],
+                    name=f"c25w_init_{j}",
+                )
+            else:
+                mdl.addConstr(
+                    w[j, k] == psi[j, k - 1] + L[j, k],
+                    name=f"c25w_{j}_{k}",
+                )
+            mdl.addConstr(psi[j, k] <= w[j, k],
+                          name=f"c25a_{j}_{k}")
+            mdl.addConstr(psi[j, k] <= M_psi * (1 - z[j, k]),
+                          name=f"c25b_{j}_{k}")
+            mdl.addConstr(psi[j, k] >= w[j, k] - M_psi * z[j, k],
+                          name=f"c25c_{j}_{k}")
 
-    # --- #26 PM may only start once cumulative load reaches threshold ---
-    # for j in J:
-    #     for k in pm_starts:
-    #         mdl.addConstr(psi[j, k] >= Lambda[j] *
-    #                       v[j, k], name=f"c26_{j}_{k}")
+    # --- #26 PM trigger: only allowed once wear reaches threshold Lambda[j] ---
+    # v[j,k]=1 is only feasible when psi[j,k] >= Lambda[j].
+    # Because psi is already 0 during PM slots (c25b), this constraint is
+    # evaluated on the slot immediately before the PM window starts, which
+    # is the last slot where psi still reflects real accumulated wear.
+    for j in J:
+        for k in pm_starts:
+            k_pre = k - 1 if k > 0 else 0
+            mdl.addConstr(
+                psi[j, k_pre] >= Lambda[j] * v[j, k],
+                name=f"c26_{j}_{k}",
+            )
 
     # --- #27/#28 Server state-change tracking ---
     for j in J:
@@ -452,7 +505,8 @@ def solve_datacenter_model(
             "Pcool": Pcool,
             "Ptot": Ptot,
             "s": s,
-#            "psi": psi,
+            "psi": psi,
+            "w": w,
         },
         "objective_terms": {
             "energy_cost": energy_cost,
