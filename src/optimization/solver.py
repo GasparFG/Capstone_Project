@@ -166,7 +166,7 @@ def solve_datacenter_model(
     # -----------------------------
     # 4.4 Objective (#4)
     # -----------------------------
-    energy_cost = delta_t / 1000.0 * gp.quicksum(c_e[k] * Ptot[k] for k in K)
+    energy_cost = delta_t * gp.quicksum(c_e[k] * Ptot[k] for k in K)
     pm_cost = gp.quicksum(c_pm * m_j[j] for j in J)
     cm_cost = c_cm * gp.quicksum(
         lambda0[j] * y[j, k] - (lambda0[j] - lambda_pm[j]) * m_j[j] * y[j, k]
