@@ -97,7 +97,7 @@ def clean_data(input_path, output_path):
     plt.tight_layout()
 
     # Save Histogram
-    plt.savefig("results/figures/resource_requests_by_job_type.png", dpi=300, bbox_inches="tight")
+    plt.savefig("outputs/results/figures/resource_requests_by_job_type.png", dpi=300, bbox_inches="tight")
 
     # Preview results
     print(f"Cleaned dataset saved to: {output_path}")
