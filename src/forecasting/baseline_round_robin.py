@@ -14,16 +14,26 @@ PURPOSE:
 SCHEDULING POLICY:
     - Jobs are processed in order of their release (arrival) time.
     - Each job is assigned to the next available eligible server in a rotating
-      sequence (GPU servers for GPU jobs, CPU servers for CPU-only jobs).
+      sequence (GPU servers for GPU jobs, all servers for CPU-only jobs).
     - The job starts at the earliest time slot >= its release slot where the
       selected server has enough remaining capacity.
     - Critical jobs requiring 2 replicas are placed on 2 different servers.
     - No lookahead, no demand forecasting, no energy awareness.
 
-PARAMETERS:
-    All server parameters, slot structure, and cost formulas are identical to
-    those used in the MILP optimization model (data_loader.py) to ensure a
-    fair, apples-to-apples comparison for the research hypotheses.
+ALIGNMENT WITH MILP MODEL (for apples-to-apples comparison):
+    - Input:  same parquet file (data/processed/optimization_forecast_jobs.parquet)
+    - Job preprocessing: identical filtering, r formula, eligibility, and
+      deadline logic to build_jobs_json_from_forecast.py
+    - Power model: same P0, dP, alpha, eta, P_ov constants as solver.py
+    - Cost model:  same c_cm=6000, lambda0=0.0000085, and wear-based CM cost
+      formula (c_cm * lambda0 * psi[j,k]/Lambda[j]) as the MILP objective
+    - Lambda:  50.8 for GPU servers (0-33), 6999.7 for CPU servers (34-41)
+      calibrated for quarterly PM cycle from real forecast load distribution
+    - psi_0:   loaded from server_params JSON (same file as MILP) so both
+      models start each daily run with identical inherited wear state
+    - No PM is scheduled in the baseline, so psi[j,k] grows monotonically
+      from psi_0[j] — producing higher CM cost than the MILP, which can reset
+      wear via PM. This is the key mechanism behind hypothesis H3.
 
 OUTPUTS (saved to outputs/baseline/):
     rr_slot_metrics.csv       - Per-slot energy, PUE, utilization, and cost
@@ -87,16 +97,41 @@ for v in _hourly_eta:
 P_OV  = 300.0
 
 # Cost parameters (all monetary values in dollars)
-C_E   = 0.139   # Electricity price ($/kWh) - Ontario time-of-use average
-C_SW  = 0.1   # Penalty per server on/off state transition ($)
+# NOTE: c_e in the MILP is slot-varying; here we use the same per-slot vector
+# loaded from the server JSON so energy costs are computed identically.
+C_E   = 0.139   # Electricity price ($/kWh) - Ontario time-of-use average (fallback)
+C_SW  = 0.1     # Penalty per server on/off state transition ($)
 C_PM  = 250.0   # Fixed cost of preventive maintenance per server ($)
-C_CM  = 100000  # Corrective maintenance cost coefficient ($ per failure event)
+# Updated to match solver calibration (was 100,000 — caused over-scheduling of PM)
+C_CM  = 6000.0  # Corrective maintenance cost coefficient ($)
 
-# Server failure rates per time slot.
-# In the baseline, no preventive maintenance (PM) is scheduled, so the full
-# base failure rate LAM0 applies throughout the entire 96-slot horizon.
-LAM0   = {j: 0.00234 if j < 34 else 0.0020 for j in J_ALL}   # base failure rate/slot
-LAM_PM = {j: 0.000702 if j < 34 else 0.0006 for j in J_ALL}   # post-PM rate (unused here)
+# Server failure rates per time slot — updated to match solver.py calibration.
+# In the baseline, no preventive maintenance is scheduled, so LAM0 applies
+# throughout the full 96-slot horizon (worst-case corrective cost scenario).
+LAM0   = {j: 0.0000085 for j in J_ALL}   # base failure rate/slot (calibrated)
+LAM_PM = {j: 0.0000085 * 0.30 for j in J_ALL}  # post-PM rate (unused in baseline)
+
+# Wear-based CM cost: Lambda threshold for quarterly PM cycle (90 days).
+# Separate thresholds for GPU (A10, servers 0-33) and CPU (servers 34-41)
+# computed from actual forecast load distribution (avg load-slots/server/day).
+LAMBDA = {j: 50.8 if j < 34 else 6999.7 for j in J_ALL}
+
+# psi_0[j]: accumulated wear at start of horizon inherited from previous cycles.
+# Loaded from the same server_params JSON used by the MILP so both models share
+# an identical starting wear state — essential for a fair daily comparison.
+_SERVER_JSON = Path("data/raw/server_params_42servers_v6.json")
+PSI_0: dict[int, float] = {}
+
+def _load_psi_0() -> dict:
+    import json
+    if _SERVER_JSON.exists():
+        with open(_SERVER_JSON) as f:
+            d = json.load(f)
+        raw = d.get("server_params", {}).get("psi_0", {})
+        return {j: float(raw.get(str(j), raw.get(j, 0.0))) for j in J_ALL}
+    return {j: 0.0 for j in J_ALL}
+
+PSI_0 = _load_psi_0()
 
 # Lateness penalty rates ($ per slot beyond deadline)
 # Interactive jobs carry a higher penalty (hard QoS requirements).
@@ -117,90 +152,81 @@ def load_jobs() -> pd.DataFrame:
     """
     Load the forecast job sequence and compute scheduling parameters.
 
-    Reads the job-level forecast produced by forecast_model.py and derives:
-      - release_slot:    earliest slot the job can start (from scheduled_seconds)
-      - duration_slots:  how many consecutive slots the job occupies
-      - deadline_slot:   latest slot by which the job must complete
-      - r:               normalized resource requirement (0 to 1, combining CPU+memory)
-      - is_critical:     whether the job needs 2 replicas for redundancy
-      - eligible_servers: which servers can run this job (GPU or CPU group)
+    Reads the same parquet file consumed by build_jobs_json_from_forecast.py
+    so that the baseline and MILP operate on an identical job set.
 
     Returns:
         DataFrame sorted by release_slot (arrival order), one row per job.
     """
-    fc_path = Path("data/forecast/good_job_level_forecast.csv")
-    fc = pd.read_csv(fc_path).dropna(
-        subset=["scheduled_seconds", "duration_seconds", "cpu_request"])
-    fc = fc.reset_index(drop=True)
+    fc_path = Path("data/processed/optimization_forecast_jobs.parquet")
+    if not fc_path.exists():
+        raise FileNotFoundError(
+            f"Forecast parquet not found: {fc_path}. "
+            "Run forecast_model.py first."
+        )
+    fc = pd.read_parquet(fc_path)
 
-    # Use 0-based job IDs to match the optimization model indexing convention
+    required = [
+        "forecast_job_id", "job_type", "release_seconds", "cpu_request",
+        "memory_request", "gpu_request", "processing_duration_seconds",
+        "deadline_seconds", "is_critical", "replica_count",
+    ]
+    missing = [c for c in required if c not in fc.columns]
+    if missing:
+        raise ValueError(f"Missing columns in parquet: {missing}")
+
+    fc = fc.dropna(subset=required).reset_index(drop=True)
     fc["job_id"] = fc.index
 
-    # Derive timing from forecast output
-    fc["release_seconds"]             = fc["scheduled_seconds"]
-    fc["processing_duration_seconds"] = fc["duration_seconds"]
-    # Deadline = release + 1.25 * duration (25% time buffer over processing time)
-    fc["deadline_seconds"] = (
-        fc["release_seconds"] + fc["processing_duration_seconds"] * 1.25)
+    # Timing columns are already in the parquet (produced by forecast_model.py)
+    fc["release_seconds"]             = fc["release_seconds"].astype(float)
+    fc["processing_duration_seconds"] = fc["processing_duration_seconds"].astype(float)
+    fc["deadline_seconds"]            = fc["deadline_seconds"].astype(float)
 
-    # --- Criticality classification ---
-    # A job is critical if it uses GPU, or requests top-10% CPU or memory.
-    # Critical jobs require 2 replicas placed on different servers for fault tolerance.
-    cpu_thresh = fc["cpu_request"].quantile(0.90)
-    mem_thresh  = fc["memory_request"].quantile(0.90)
-    fc["is_critical"] = (
-        (fc["gpu_request"] == 1) |
-        (fc["cpu_request"]  >= cpu_thresh) |
-        (fc["memory_request"] >= mem_thresh)
-    ).astype(int)
-    fc["replica_count"] = np.where(fc["is_critical"] == 1, 2, 1)
-
-    # --- Convert seconds to slot indices ---
-    # release_slot: floor(seconds / SLOT_SECONDS), clamped to valid range
+    # --- Convert seconds to slot indices (identical to build_jobs_json_from_forecast.py) ---
     fc["release_slot"] = fc["release_seconds"].apply(
         lambda s: max(0, min(int(math.floor(s / SLOT_SECONDS)), N_SLOTS - 1)))
-    # duration_slots: ceiling division so the job always gets full processing time
     fc["duration_slots"] = fc["processing_duration_seconds"].apply(
         lambda s: max(1, int(math.ceil(s / SLOT_SECONDS))))
-    # deadline_slot: ceiling division, capped at the horizon boundary
     fc["deadline_slot"] = fc["deadline_seconds"].apply(
         lambda s: min(N_SLOTS, int(math.ceil(s / SLOT_SECONDS))))
 
-    # --- Resource normalization ---
-    # r[i] combines CPU and memory demand into a single normalized load fraction.
-    # Formula: r = 0.5*(cpu/max_cpu) + 0.5*(memory/max_memory)
-    # This matches the formula used in build_jobs_json_from_forecast.py.
-    max_cpu = 128 #cores (from server parameters based on G type server with highest CPU capacity)
-    max_memory = 1024  # GB (from server parameters based on G type server with highest RAM capacity)
-    max_mem = max(float(fc["memory_request"].max()), 1.0)
+    # --- Resource normalization (identical formula to build_jobs_json_from_forecast.py) ---
+    max_cpu    = 128.0   # cores — G-type GPU server max
+    max_memory = 1024.0  # GB   — G-type GPU server max
     fc["r"] = fc.apply(
         lambda row: round(
-            min(1.0, 0.5 * row["cpu_request"] / max_cpu
-                   + 0.5 * row["memory_request"] / max_mem), 4),
+            min(1.0, 0.5 * float(row["cpu_request"])    / max_cpu
+                   + 0.5 * float(row["memory_request"]) / max_memory), 4),
         axis=1)
 
-    # --- Server eligibility ---
-    # GPU jobs (role=HN, gpu_request=1) run exclusively on GPU servers.
-    # CPU-only jobs (role=CN) run on CPU servers.
+    # --- Server eligibility (same logic as build_eligibility in build_jobs_json) ---
     fc["eligible_servers"] = fc["gpu_request"].apply(
-        lambda g: J_GPU if int(g) == 1 else J_CPU)
+        lambda g: J_GPU if int(g) == 1 else J_ALL)
 
-    # --- Reclassify oversized batch jobs as interactive ---
-    # Batch jobs with r >= 1.0 would violate the batch capacity constraint
-    # (they need 100% of server capacity, but batch is capped at 70%).
-    # These large, high-priority jobs are reclassified as interactive.
-    # This matches the same fix applied in the MILP model.
-    large_batch_mask = (fc["job_type"] == "batch") & (fc["r"] >= 1.0)
-    fc.loc[large_batch_mask, "job_type"] = "interactive"
+    # --- Drop jobs that cannot complete within the 96-slot horizon ---
+    fits = (fc["release_slot"] + fc["duration_slots"]) <= N_SLOTS
+    n_dropped = (~fits).sum()
+    if n_dropped:
+        print(f"  Dropping {n_dropped} jobs that exceed the 96-slot horizon.")
+    fc = fc[fits].reset_index(drop=True)
+    fc["job_id"] = fc.index
 
-    # Ensure deadline is always reachable (>= release + duration)
+    # --- Drop oversized batch jobs (r >= 0.70 cannot fit batch cap) ---
+    BATCH_CAP = (1 - THETA) * 1.0   # 0.70
+    oversized = (fc["job_type"] == "batch") & (fc["r"] >= BATCH_CAP)
+    n_over = oversized.sum()
+    if n_over:
+        print(f"  Dropping {n_over} oversized batch jobs (r >= {BATCH_CAP}).")
+    fc = fc[~oversized].reset_index(drop=True)
+    fc["job_id"] = fc.index
+
+    # Ensure deadline is always reachable
     fc["deadline_slot"] = fc.apply(
-        lambda row: max(
-            row["deadline_slot"],
-            row["release_slot"] + row["duration_slots"]),
+        lambda row: max(row["deadline_slot"],
+                        row["release_slot"] + row["duration_slots"]),
         axis=1).clip(upper=N_SLOTS)
 
-    # Return sorted by arrival time (Round-Robin processes in arrival order)
     return fc.sort_values("release_slot").reset_index(drop=True)
 
 
@@ -518,16 +544,35 @@ def build_summary(schedule_df: pd.DataFrame, slot_df: pd.DataFrame,
     total_late_cost   = schedule_df["lateness_cost"].sum()
     jobs_placed       = schedule_df["job_id"].nunique()
 
-    # A job is "on time" if ALL of its replicas complete before the deadline
     jobs_on_time = (
         schedule_df.groupby("job_id")["lateness_slots"].max() == 0).sum()
 
-    # Expected corrective maintenance cost (no PM in baseline):
-    # Each server runs at base failure rate LAM0 for all N_SLOTS slots.
-    # Expected failures per server = LAM0[j] * N_SLOTS
-    cm_cost = C_CM * sum(LAM0[j] * N_SLOTS for j in J_ALL)
+    # Wear-based CM cost — mirrors the solver's objective term exactly:
+    #   cm_cost = c_cm * Σ_{j,k} lambda0[j] * (psi[j,k] / Lambda[j]) * active[j,k]
+    #
+    # In the baseline no PM is ever scheduled, so psi[j,k] grows from PSI_0[j]
+    # linearly by load[j][k] each slot — the worst-case wear trajectory.
+    # This produces a higher CM cost than the MILP (which resets psi via PM),
+    # which is the key mechanism behind hypothesis H3.
+    cm_cost = 0.0
+    for j in J_ALL:
+        psi_jk = PSI_0[j]
+        for k in range(N_SLOTS):
+            psi_jk += float(load[j][k])   # accumulate load, no reset (no PM)
+            active = 1 if load[j][k] > 1e-6 else 0
+            cm_cost += C_CM * LAM0[j] * (psi_jk / LAMBDA[j]) * active
 
     total_cost = total_energy_cost + cm_cost + sw_cost + total_late_cost
+
+    # psi_end[j]: wear at end of horizon (= last psi_jk for each server).
+    # Saved so that if a multi-day study is run, the baseline's wear state
+    # can be carried forward symmetrically with the MILP's update_psi_0 step.
+    psi_end = {}
+    for j in J_ALL:
+        psi_jk = PSI_0[j]
+        for k in range(N_SLOTS):
+            psi_jk += float(load[j][k])
+        psi_end[j] = round(psi_jk, 6)
 
     return {
         "policy":              "Round-Robin",
@@ -542,8 +587,11 @@ def build_summary(schedule_df: pd.DataFrame, slot_df: pd.DataFrame,
         "switching_cost_$":    round(sw_cost, 4),
         "n_switches":          n_switches,
         "corrective_maint_$":  round(cm_cost, 4),
+        "preventive_maint_$":  0.0,
         "lateness_cost_$":     round(total_late_cost, 4),
         "total_cost_$":        round(total_cost, 4),
+        "avg_psi_end":         round(sum(psi_end.values()) / len(psi_end), 4),
+        "max_psi_end":         round(max(psi_end.values()), 4),
     }
 
 
