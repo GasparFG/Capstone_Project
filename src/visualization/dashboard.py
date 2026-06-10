@@ -20,45 +20,57 @@ st.markdown(
     """
     <style>
     html, body, [class*="css"] {
-        font-size: 17px;
+        font-size: 20px !important;
     }
 
     .stApp {
-        font-size: 17px;
+        font-size: 20px !important;
     }
 
     h1 {
-        font-size: 2.4rem !important;
+        font-size: 2.8rem !important;
     }
 
     h2 {
-        font-size: 2rem !important;
+        font-size: 2.35rem !important;
     }
 
     h3 {
-        font-size: 1.45rem !important;
+        font-size: 1.75rem !important;
+    }
+
+    p, span, label, div {
+        font-size: 1.03rem;
     }
 
     div[data-testid="stMetricLabel"] {
-        font-size: 1rem !important;
+        font-size: 1.15rem !important;
     }
 
     div[data-testid="stMetricValue"] {
-        font-size: 1.8rem !important;
+        font-size: 2.15rem !important;
+    }
+
+    div[data-testid="stMetricDelta"] {
+        font-size: 1.1rem !important;
+    }
+
+    .stDataFrame {
+        font-size: 18px !important;
     }
 
     .overview-section {
         border: 1px solid rgba(250, 250, 250, 0.12);
         border-radius: 14px;
-        padding: 20px;
-        margin-bottom: 18px;
+        padding: 22px;
+        margin-bottom: 20px;
         background-color: rgba(255, 255, 255, 0.03);
     }
 
     .overview-title {
-        font-size: 1.35rem;
-        font-weight: 700;
-        margin-bottom: 14px;
+        font-size: 1.65rem;
+        font-weight: 750;
+        margin-bottom: 16px;
     }
 
     .center-title {
@@ -66,35 +78,35 @@ st.markdown(
     }
 
     .big-total-cost {
-        font-size: 2.85rem;
+        font-size: 3.45rem;
         font-weight: 850;
         line-height: 1.1;
-        margin-bottom: 4px;
+        margin-bottom: 6px;
         text-align: center;
     }
 
     .big-total-cost-label {
-        font-size: 1rem;
-        opacity: 0.75;
-        margin-bottom: 16px;
+        font-size: 1.2rem;
+        opacity: 0.8;
+        margin-bottom: 18px;
         text-align: center;
     }
 
     .status-subtitle {
-        font-size: 0.95rem;
-        opacity: 0.8;
+        font-size: 1.1rem;
+        opacity: 0.85;
         margin-top: -8px;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
 
     .server-grid-card {
         border-radius: 10px;
-        padding: 14px 8px;
-        margin: 4px 0px;
+        padding: 16px 8px;
+        margin: 5px 0px;
         text-align: center;
-        font-weight: 700;
+        font-weight: 750;
         color: #111111;
-        min-height: 72px;
+        min-height: 82px;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -102,13 +114,40 @@ st.markdown(
     }
 
     .server-grid-id {
-        font-size: 16px;
-        margin-bottom: 4px;
+        font-size: 18px;
+        margin-bottom: 5px;
     }
 
     .server-grid-status {
-        font-size: 11px;
+        font-size: 13px;
         text-transform: uppercase;
+    }
+
+    .heatmap-clock-container {
+        text-align: center;
+        margin-top: 10px;
+        margin-bottom: 18px;
+    }
+
+    .heatmap-clock-label {
+        font-size: 1.05rem;
+        opacity: 0.8;
+    }
+
+    .heatmap-clock-time {
+        font-size: 2.35rem;
+        font-weight: 850;
+        padding: 8px 22px;
+        border-radius: 12px;
+        display: inline-block;
+        border: 1px solid rgba(255,255,255,0.18);
+        background-color: rgba(255,255,255,0.04);
+    }
+
+    .heatmap-clock-slot {
+        margin-top: 6px;
+        font-size: 0.95rem;
+        opacity: 0.7;
     }
     </style>
     """,
@@ -147,6 +186,39 @@ def get_output_priority_dirs() -> list[Path]:
 
 
 OUTPUT_PRIORITY_DIRS = get_output_priority_dirs()
+
+
+# ============================================================
+# 2.1 DASHBOARD COLOR CONFIGURATION
+# ============================================================
+
+DASHBOARD_WORKLOAD_COLOR_MAP = {
+    "batch": "#56CCF2",
+    "Batch": "#56CCF2",
+    "batch_avg_load": "#56CCF2",
+    "Batch Load": "#56CCF2",
+    "interactive": "#0B1F5B",
+    "Interactive": "#0B1F5B",
+    "interactive_avg_load": "#0B1F5B",
+    "Interactive Load": "#0B1F5B",
+}
+
+DASHBOARD_STATUS_COLOR_MAP = {
+    "active": "#2ECC71",
+    "Active": "#2ECC71",
+    "maintenance": "#F1C40F",
+    "Maintenance": "#F1C40F",
+    "idle": "#E74C3C",
+    "Idle": "#E74C3C",
+}
+
+DASHBOARD_COST_COLOR_MAP = {
+    "Energy": "#3498DB",
+    "PM": "#9B59B6",
+    "CM": "#E67E22",
+    "Switch": "#95A5A6",
+    "Lateness": "#E74C3C",
+}
 
 
 # ============================================================
@@ -430,6 +502,64 @@ def load_all_available_dashboard_outputs() -> dict[str, pd.DataFrame]:
 # 4. GENERAL HELPERS
 # ============================================================
 
+def apply_dashboard_chart_font(
+    fig,
+    title_size: int = 28,
+    axis_title_size: int = 22,
+    axis_tick_size: int = 19,
+    legend_size: int = 19,
+    text_size: int = 22,
+):
+    """
+    Applies larger font sizes to Plotly charts.
+    """
+
+    fig.update_layout(
+        title_font=dict(size=title_size),
+        font=dict(size=axis_tick_size),
+        legend=dict(
+            font=dict(size=legend_size),
+            title=dict(font=dict(size=legend_size)),
+        ),
+        xaxis=dict(
+            title_font=dict(size=axis_title_size),
+            tickfont=dict(size=axis_tick_size),
+        ),
+        yaxis=dict(
+            title_font=dict(size=axis_title_size),
+            tickfont=dict(size=axis_tick_size),
+        ),
+    )
+
+    fig.update_traces(
+        textfont=dict(size=text_size),
+    )
+
+    return fig
+
+
+def apply_dashboard_pie_font(fig):
+    """
+    Applies readable labels to pie charts.
+    """
+
+    fig.update_traces(
+        textposition="inside",
+        textinfo="percent+label",
+        textfont=dict(size=22),
+    )
+
+    fig.update_layout(
+        font=dict(size=19),
+        legend=dict(
+            font=dict(size=19),
+            title=dict(font=dict(size=19)),
+        ),
+    )
+
+    return fig
+
+
 def require_dashboard_columns(
     df_dashboard_table: pd.DataFrame,
     required_columns: list[str],
@@ -540,6 +670,29 @@ def format_dashboard_number(value, decimals: int = 2) -> str:
         return f"{float(value):,.{decimals}f}"
     except Exception:
         return f"{0:.{decimals}f}"
+
+
+def format_dashboard_slot_as_time(slot_value) -> str:
+    """
+    Converts a 15-minute slot number into HH:MM format.
+
+    Slot 0  -> 00:00
+    Slot 1  -> 00:15
+    Slot 2  -> 00:30
+    ...
+    Slot 95 -> 23:45
+    """
+
+    try:
+        slot_number = int(float(slot_value))
+    except Exception:
+        return str(slot_value)
+
+    total_minutes = slot_number * 15
+    hour = (total_minutes // 60) % 24
+    minute = total_minutes % 60
+
+    return f"{hour:02d}:{minute:02d}"
 
 
 def get_dashboard_unique_jobs(
@@ -693,16 +846,16 @@ def build_dashboard_daily_server_status_counts(
 
 def get_dashboard_status_color(status: str) -> str:
     """
-    Returns a color for each server status.
+    Returns a consistent color for each server status.
     """
 
-    status_colors = {
-        "active": "#2ecc71",
-        "idle": "#95a5a6",
-        "maintenance": "#f1c40f",
-    }
-
-    return status_colors.get(str(status).lower(), "#7f8c8d")
+    return DASHBOARD_STATUS_COLOR_MAP.get(
+        str(status),
+        DASHBOARD_STATUS_COLOR_MAP.get(
+            str(status).lower(),
+            "#7F8C8D",
+        ),
+    )
 
 
 def render_dashboard_server_status_grid(
@@ -1007,75 +1160,32 @@ with tab_overview:
         dashboard_metrics = df_dashboard_performance_main.iloc[0]
 
         dashboard_total_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "total_cost",
-        )
-
+            dashboard_metrics, "total_cost")
         dashboard_energy_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "energy_cost",
-        )
-
+            dashboard_metrics, "energy_cost")
         dashboard_pm_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "pm_cost",
-        )
-
+            dashboard_metrics, "pm_cost")
         dashboard_expected_cm_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "expected_cm_cost",
-        )
-
+            dashboard_metrics, "expected_cm_cost")
         dashboard_switching_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "switching_cost",
-        )
-
+            dashboard_metrics, "switching_cost")
         dashboard_lateness_cost = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "lateness_cost",
-        )
-
+            dashboard_metrics, "lateness_cost")
         dashboard_jobs_in_forecast = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "jobs_in_forecast",
-        )
-
+            dashboard_metrics, "jobs_in_forecast")
         dashboard_jobs_placed = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "jobs_placed",
-        )
-
+            dashboard_metrics, "jobs_placed")
         dashboard_jobs_on_time = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "jobs_on_time",
-        )
-
+            dashboard_metrics, "jobs_on_time")
         dashboard_jobs_late = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "jobs_late_count",
-        )
-
+            dashboard_metrics, "jobs_late_count")
         dashboard_total_energy = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "total_facility_energy_kwh",
-        )
-
+            dashboard_metrics, "total_facility_energy_kwh")
         dashboard_average_pue = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "average_pue",
-        )
-
+            dashboard_metrics, "average_pue")
         dashboard_max_pue = safe_dashboard_metric_value(
-            dashboard_metrics,
-            "max_pue",
-        )
-
+            dashboard_metrics, "max_pue")
         dashboard_total_pue = dashboard_average_pue
-
-        # -----------------------------
-        # COST BLOCK
-        # -----------------------------
 
         st.markdown('<div class="overview-section">', unsafe_allow_html=True)
         st.markdown(
@@ -1147,6 +1257,7 @@ with tab_overview:
                     lambda value: f"{value:.1f}%"
                 ),
                 title="Cost Breakdown",
+                color_discrete_map=DASHBOARD_COST_COLOR_MAP,
             )
 
             fig_dashboard_cost_breakdown_pct.update_layout(
@@ -1155,9 +1266,25 @@ with tab_overview:
                 yaxis_title="",
                 xaxis=dict(range=[0, 100]),
                 legend_title_text="Cost Type",
-                height=260,
-                margin=dict(l=20, r=20, t=60, b=40),
+                height=310,
+                margin=dict(l=20, r=20, t=70, b=50),
                 title_x=0.5,
+                uniformtext_minsize=20,
+                uniformtext_mode="show",
+            )
+
+            fig_dashboard_cost_breakdown_pct.update_traces(
+                textfont=dict(size=24),
+                textposition="inside",
+            )
+
+            fig_dashboard_cost_breakdown_pct = apply_dashboard_chart_font(
+                fig_dashboard_cost_breakdown_pct,
+                title_size=30,
+                axis_title_size=23,
+                axis_tick_size=20,
+                legend_size=20,
+                text_size=24,
             )
 
             st.plotly_chart(
@@ -1168,35 +1295,17 @@ with tab_overview:
         cost_col1, cost_col2, cost_col3, cost_col4, cost_col5 = st.columns(5)
 
         cost_col1.metric(
-            "Energy Cost",
-            format_dashboard_currency(dashboard_energy_cost),
-        )
-
+            "Energy Cost", format_dashboard_currency(dashboard_energy_cost))
         cost_col2.metric(
-            "PM Cost",
-            format_dashboard_currency(dashboard_pm_cost),
-        )
-
-        cost_col3.metric(
-            "CM Cost",
-            format_dashboard_currency(dashboard_expected_cm_cost),
-        )
-
-        cost_col4.metric(
-            "Switch Cost",
-            format_dashboard_currency(dashboard_switching_cost),
-        )
-
-        cost_col5.metric(
-            "Lateness Cost",
-            format_dashboard_currency(dashboard_lateness_cost),
-        )
+            "PM Cost", format_dashboard_currency(dashboard_pm_cost))
+        cost_col3.metric("CM Cost", format_dashboard_currency(
+            dashboard_expected_cm_cost))
+        cost_col4.metric("Switch Cost", format_dashboard_currency(
+            dashboard_switching_cost))
+        cost_col5.metric("Lateness Cost", format_dashboard_currency(
+            dashboard_lateness_cost))
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-        # -----------------------------
-        # JOBS BLOCK
-        # -----------------------------
 
         st.markdown('<div class="overview-section">', unsafe_allow_html=True)
         st.markdown(
@@ -1206,31 +1315,12 @@ with tab_overview:
 
         jobs_col1, jobs_col2, jobs_col3, jobs_col4 = st.columns(4)
 
-        jobs_col1.metric(
-            "Jobs in Forecast",
-            int(dashboard_jobs_in_forecast),
-        )
-
-        jobs_col2.metric(
-            "Jobs Placed",
-            int(dashboard_jobs_placed),
-        )
-
-        jobs_col3.metric(
-            "Jobs On Time",
-            int(dashboard_jobs_on_time),
-        )
-
-        jobs_col4.metric(
-            "Late Jobs",
-            int(dashboard_jobs_late),
-        )
+        jobs_col1.metric("Jobs in Forecast", int(dashboard_jobs_in_forecast))
+        jobs_col2.metric("Jobs Placed", int(dashboard_jobs_placed))
+        jobs_col3.metric("Jobs On Time", int(dashboard_jobs_on_time))
+        jobs_col4.metric("Late Jobs", int(dashboard_jobs_late))
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-        # -----------------------------
-        # ENERGY BLOCK
-        # -----------------------------
 
         st.markdown('<div class="overview-section">', unsafe_allow_html=True)
         st.markdown(
@@ -1261,10 +1351,6 @@ with tab_overview:
         )
 
         st.markdown("</div>", unsafe_allow_html=True)
-
-        # -----------------------------
-        # SERVER BLOCK
-        # -----------------------------
 
         st.markdown('<div class="overview-section">', unsafe_allow_html=True)
         st.markdown(
@@ -1392,6 +1478,16 @@ with tab_jobs:
                     names="job_type",
                     values="job_count",
                     title="Proportion of Job Types",
+                    color="job_type",
+                    color_discrete_map=DASHBOARD_WORKLOAD_COLOR_MAP,
+                )
+
+                fig_dashboard_job_type = apply_dashboard_pie_font(
+                    fig_dashboard_job_type
+                )
+
+                fig_dashboard_job_type = apply_dashboard_chart_font(
+                    fig_dashboard_job_type
                 )
 
                 st.plotly_chart(fig_dashboard_job_type, width="stretch")
@@ -1438,11 +1534,16 @@ with tab_jobs:
                     color="job_type",
                     barmode="stack",
                     title="Jobs by Hour and Type",
+                    color_discrete_map=DASHBOARD_WORKLOAD_COLOR_MAP,
                 )
 
                 fig_dashboard_jobs_by_hour.update_layout(
                     xaxis_title="Hour / Slot",
                     yaxis_title="Number of Jobs",
+                )
+
+                fig_dashboard_jobs_by_hour = apply_dashboard_chart_font(
+                    fig_dashboard_jobs_by_hour
                 )
 
                 st.plotly_chart(
@@ -1498,13 +1599,16 @@ with tab_servers:
                         in df_dashboard_server_summary_main.columns
                         else None
                     ),
-                    text_auto=".2f",
                     title="Server Utilization Rate",
                 )
 
                 fig_dashboard_utilization.update_layout(
                     xaxis_title="Server ID",
                     yaxis_title="Utilization Rate (%)",
+                )
+
+                fig_dashboard_utilization = apply_dashboard_chart_font(
+                    fig_dashboard_utilization
                 )
 
                 st.plotly_chart(
@@ -1562,6 +1666,10 @@ with tab_servers:
                     yaxis_title="Load",
                 )
 
+                fig_dashboard_load_line = apply_dashboard_chart_font(
+                    fig_dashboard_load_line
+                )
+
                 st.plotly_chart(
                     fig_dashboard_load_line,
                     width="stretch",
@@ -1598,6 +1706,16 @@ with tab_servers:
                     )
                 )
 
+                df_dashboard_avg_load_type["load_type"] = (
+                    df_dashboard_avg_load_type["load_type"]
+                    .replace(
+                        {
+                            "batch_avg_load": "Batch",
+                            "interactive_avg_load": "Interactive",
+                        }
+                    )
+                )
+
                 fig_dashboard_load_type = px.bar(
                     df_dashboard_avg_load_type,
                     x="server_id",
@@ -1605,11 +1723,16 @@ with tab_servers:
                     color="load_type",
                     barmode="group",
                     title="Average Batch vs Interactive Load by Server",
+                    color_discrete_map=DASHBOARD_WORKLOAD_COLOR_MAP,
                 )
 
                 fig_dashboard_load_type.update_layout(
                     xaxis_title="Server ID",
                     yaxis_title="Average Load",
+                )
+
+                fig_dashboard_load_type = apply_dashboard_chart_font(
+                    fig_dashboard_load_type
                 )
 
                 st.plotly_chart(
@@ -1663,6 +1786,10 @@ with tab_servers:
                     yaxis_title="Active Servers",
                 )
 
+                fig_dashboard_peak_hours = apply_dashboard_chart_font(
+                    fig_dashboard_peak_hours
+                )
+
                 st.plotly_chart(
                     fig_dashboard_peak_hours,
                     width="stretch",
@@ -1684,7 +1811,6 @@ with tab_servers:
                 [
                     "server_id",
                     "slot",
-                    "time",
                     "status",
                 ],
                 "server_load_timeseries",
@@ -1700,65 +1826,134 @@ with tab_servers:
                     df_dashboard_server_load_main[
                         [
                             "slot",
-                            "time",
                         ]
                     ]
                     .dropna(subset=["slot"])
                     .drop_duplicates()
                     .sort_values("slot")
+                    .copy()
                 )
 
-                dashboard_slot_options = df_dashboard_slots["slot"].tolist()
-
-                dashboard_selected_slot = st.slider(
-                    "Select time slot",
-                    min_value=int(min(dashboard_slot_options)),
-                    max_value=int(max(dashboard_slot_options)),
-                    value=int(min(dashboard_slot_options)),
-                    step=1,
+                dashboard_slot_options = (
+                    df_dashboard_slots["slot"]
+                    .astype(int)
+                    .tolist()
                 )
 
-                dashboard_selected_time = (
-                    df_dashboard_slots[
-                        df_dashboard_slots["slot"] == dashboard_selected_slot
-                    ]["time"]
-                    .iloc[0]
-                )
+                if not dashboard_slot_options:
+                    st.warning("No slot values available.")
+                else:
+                    dashboard_min_slot = int(min(dashboard_slot_options))
+                    dashboard_max_slot = int(max(dashboard_slot_options))
 
-                st.caption(
-                    f"Selected slot: {dashboard_selected_slot} | Time: {dashboard_selected_time}"
-                )
+                    if "dashboard_heatmap_slot" not in st.session_state:
+                        st.session_state.dashboard_heatmap_slot = dashboard_min_slot
 
-                legend_col1, legend_col2, legend_col3 = st.columns(3)
+                    if st.session_state.dashboard_heatmap_slot < dashboard_min_slot:
+                        st.session_state.dashboard_heatmap_slot = dashboard_min_slot
 
-                with legend_col1:
+                    if st.session_state.dashboard_heatmap_slot > dashboard_max_slot:
+                        st.session_state.dashboard_heatmap_slot = dashboard_max_slot
+
+                    top_col_left, top_col_right = st.columns([5, 2])
+
+                    with top_col_left:
+                        st.markdown(
+                            """
+                            <div style="
+                                display:flex;
+                                gap:12px;
+                                justify-content:flex-start;
+                                align-items:center;
+                                flex-wrap:wrap;
+                                margin-top:14px;
+                                margin-bottom:10px;
+                            ">
+                                <span style="background-color:#2ECC71; color:#111; padding:8px 14px; border-radius:8px; font-weight:700;">
+                                    Active
+                                </span>
+                                <span style="background-color:#F1C40F; color:#111; padding:8px 14px; border-radius:8px; font-weight:700;">
+                                    Maintenance
+                                </span>
+                                <span style="background-color:#E74C3C; color:white; padding:8px 14px; border-radius:8px; font-weight:700;">
+                                    Idle
+                                </span>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with top_col_right:
+                        nav_col1, nav_col2 = st.columns(2)
+
+                        with nav_col1:
+                            if st.button(
+                                "Previous",
+                                key="dashboard_prev_slot_btn",
+                                width="stretch",
+                            ):
+                                st.session_state.dashboard_heatmap_slot = max(
+                                    dashboard_min_slot,
+                                    int(st.session_state.dashboard_heatmap_slot) - 1,
+                                )
+                                st.rerun()
+
+                        with nav_col2:
+                            if st.button(
+                                "Next",
+                                key="dashboard_next_slot_btn",
+                                width="stretch",
+                            ):
+                                st.session_state.dashboard_heatmap_slot = min(
+                                    dashboard_max_slot,
+                                    int(st.session_state.dashboard_heatmap_slot) + 1,
+                                )
+                                st.rerun()
+
+                    dashboard_slider_value = st.slider(
+                        "Select time slot",
+                        min_value=dashboard_min_slot,
+                        max_value=dashboard_max_slot,
+                        value=int(st.session_state.dashboard_heatmap_slot),
+                        step=1,
+                        key="dashboard_heatmap_slot_slider",
+                    )
+
+                    if dashboard_slider_value != st.session_state.dashboard_heatmap_slot:
+                        st.session_state.dashboard_heatmap_slot = dashboard_slider_value
+                        st.rerun()
+
+                    dashboard_selected_slot = int(
+                        st.session_state.dashboard_heatmap_slot
+                    )
+
+                    dashboard_selected_time = format_dashboard_slot_as_time(
+                        dashboard_selected_slot
+                    )
+
                     st.markdown(
-                        '<span style="background-color:#2ecc71; color:#111; padding:6px 12px; border-radius:6px;">Active</span>',
+                        f"""
+                        <div class="heatmap-clock-container">
+                            <div class="heatmap-clock-label">Current Time</div>
+                            <div class="heatmap-clock-time">{dashboard_selected_time}</div>
+                            <div class="heatmap-clock-slot">Slot {dashboard_selected_slot}</div>
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
 
-                with legend_col2:
-                    st.markdown(
-                        '<span style="background-color:#95a5a6; color:#111; padding:6px 12px; border-radius:6px;">Idle</span>',
-                        unsafe_allow_html=True,
+                    st.caption(
+                        f"Selected slot: {dashboard_selected_slot} | Time: {dashboard_selected_time}"
                     )
 
-                with legend_col3:
-                    st.markdown(
-                        '<span style="background-color:#f1c40f; color:#111; padding:6px 12px; border-radius:6px;">Maintenance</span>',
-                        unsafe_allow_html=True,
+                    df_dashboard_server_load_slot = df_dashboard_server_load_main[
+                        df_dashboard_server_load_main["slot"] == dashboard_selected_slot
+                    ].copy()
+
+                    render_dashboard_server_status_grid(
+                        df_dashboard_server_load_slot=df_dashboard_server_load_slot,
+                        servers_per_row=7,
                     )
-
-                st.write("")
-
-                df_dashboard_server_load_slot = df_dashboard_server_load_main[
-                    df_dashboard_server_load_main["slot"] == dashboard_selected_slot
-                ].copy()
-
-                render_dashboard_server_status_grid(
-                    df_dashboard_server_load_slot=df_dashboard_server_load_slot,
-                    servers_per_row=7,
-                )
 
 
 # ============================================================
@@ -1800,6 +1995,10 @@ with tab_energy:
                 fig_dashboard_pue.update_layout(
                     xaxis_title="Time",
                     yaxis_title="PUE",
+                )
+
+                fig_dashboard_pue = apply_dashboard_chart_font(
+                    fig_dashboard_pue
                 )
 
                 st.plotly_chart(
@@ -1849,6 +2048,10 @@ with tab_energy:
                 fig_dashboard_power.update_layout(
                     xaxis_title="Time",
                     yaxis_title="Power",
+                )
+
+                fig_dashboard_power = apply_dashboard_chart_font(
+                    fig_dashboard_power
                 )
 
                 st.plotly_chart(
@@ -1983,6 +2186,16 @@ with tab_maintenance:
                             names="status",
                             values="server_slot_count",
                             title="",
+                            color="status",
+                            color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                        )
+
+                        fig_dashboard_status_occurrences = apply_dashboard_pie_font(
+                            fig_dashboard_status_occurrences
+                        )
+
+                        fig_dashboard_status_occurrences = apply_dashboard_chart_font(
+                            fig_dashboard_status_occurrences
                         )
 
                         st.plotly_chart(
@@ -2011,6 +2224,16 @@ with tab_maintenance:
                             names="status",
                             values="unique_server_count",
                             title="",
+                            color="status",
+                            color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                        )
+
+                        fig_dashboard_unique_status = apply_dashboard_pie_font(
+                            fig_dashboard_unique_status
+                        )
+
+                        fig_dashboard_unique_status = apply_dashboard_chart_font(
+                            fig_dashboard_unique_status
                         )
 
                         st.plotly_chart(
@@ -2039,6 +2262,16 @@ with tab_maintenance:
                             names="daily_status",
                             values="server_count",
                             title="",
+                            color="daily_status",
+                            color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                        )
+
+                        fig_dashboard_daily_status = apply_dashboard_pie_font(
+                            fig_dashboard_daily_status
+                        )
+
+                        fig_dashboard_daily_status = apply_dashboard_chart_font(
+                            fig_dashboard_daily_status
                         )
 
                         st.plotly_chart(
@@ -2097,6 +2330,15 @@ with tab_compare:
                 fig_dashboard_total_cost.update_layout(
                     xaxis_title="Scenario",
                     yaxis_title="Total Cost",
+                )
+
+                fig_dashboard_total_cost.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=22),
+                )
+
+                fig_dashboard_total_cost = apply_dashboard_chart_font(
+                    fig_dashboard_total_cost
                 )
 
                 st.plotly_chart(
@@ -2167,26 +2409,40 @@ with tab_compare:
                     )
                 )
 
+                df_dashboard_cost_breakdown_comparison["cost_label"] = (
+                    df_dashboard_cost_breakdown_comparison["cost"]
+                    .map(lambda value: f"${float(value):,.2f}")
+                )
+
                 fig_dashboard_cost_breakdown = px.bar(
                     df_dashboard_cost_breakdown_comparison,
                     x="scenario",
                     y="cost",
                     color="cost_type",
                     barmode="stack",
-                    text=df_dashboard_cost_breakdown_comparison["cost"].map(
-                        lambda value: f"${float(value):,.2f}"
-                    ),
+                    text="cost_label",
                     title="Cost Breakdown by Scenario",
+                    color_discrete_map=DASHBOARD_COST_COLOR_MAP,
                 )
 
                 fig_dashboard_cost_breakdown.update_layout(
                     xaxis_title="Scenario",
                     yaxis_title="Cost",
                     legend_title_text="Cost Type",
+                    uniformtext_minsize=18,
+                    uniformtext_mode="show",
                 )
 
-                fig_dashboard_cost_breakdown.update_traces(
-                    textposition="inside",
+                for dashboard_trace in fig_dashboard_cost_breakdown.data:
+                    if dashboard_trace.name == "Switch":
+                        dashboard_trace.textposition = "outside"
+                        dashboard_trace.textfont = dict(size=21)
+                    else:
+                        dashboard_trace.textposition = "inside"
+                        dashboard_trace.textfont = dict(size=21)
+
+                fig_dashboard_cost_breakdown = apply_dashboard_chart_font(
+                    fig_dashboard_cost_breakdown
                 )
 
                 st.plotly_chart(
@@ -2205,17 +2461,39 @@ with tab_compare:
                 ],
                 "performance_metrics",
             ):
+                df_dashboard_late_jobs_plot = (
+                    df_dashboard_performance_comparison.copy()
+                )
+
+                df_dashboard_late_jobs_plot["jobs_late_label"] = (
+                    df_dashboard_late_jobs_plot["jobs_late_count"]
+                    .apply(
+                        lambda value: ""
+                        if float(value) == 0
+                        else str(int(value))
+                    )
+                )
+
                 fig_dashboard_late_jobs = px.bar(
-                    df_dashboard_performance_comparison,
+                    df_dashboard_late_jobs_plot,
                     x="scenario",
                     y="jobs_late_count",
-                    text_auto=True,
+                    text="jobs_late_label",
                     title="Late Jobs by Scenario",
                 )
 
                 fig_dashboard_late_jobs.update_layout(
                     xaxis_title="Scenario",
                     yaxis_title="Late Jobs",
+                )
+
+                fig_dashboard_late_jobs.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=22),
+                )
+
+                fig_dashboard_late_jobs = apply_dashboard_chart_font(
+                    fig_dashboard_late_jobs
                 )
 
                 st.plotly_chart(
@@ -2245,10 +2523,63 @@ with tab_compare:
                     yaxis_title="Average PUE",
                 )
 
+                fig_dashboard_average_pue.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=22),
+                )
+
+                fig_dashboard_average_pue = apply_dashboard_chart_font(
+                    fig_dashboard_average_pue
+                )
+
                 st.plotly_chart(
                     fig_dashboard_average_pue,
                     width="stretch",
                 )
+
+                df_dashboard_average_utilization_summary = pd.DataFrame()
+
+                if not df_dashboard_server_summary_comparison.empty and {
+                    "scenario",
+                    "utilization_rate_pct",
+                }.issubset(df_dashboard_server_summary_comparison.columns):
+                    df_dashboard_average_utilization_summary = (
+                        df_dashboard_server_summary_comparison
+                        .groupby("scenario", as_index=False)
+                        .agg(
+                            avg_server_utilization_pct=(
+                                "utilization_rate_pct",
+                                "mean",
+                            ),
+                            max_server_utilization_pct=(
+                                "utilization_rate_pct",
+                                "max",
+                            ),
+                            min_server_utilization_pct=(
+                                "utilization_rate_pct",
+                                "min",
+                            ),
+                        )
+                    )
+
+                    for dashboard_column in [
+                        "avg_server_utilization_pct",
+                        "max_server_utilization_pct",
+                        "min_server_utilization_pct",
+                    ]:
+                        df_dashboard_average_utilization_summary[
+                            dashboard_column
+                        ] = df_dashboard_average_utilization_summary[
+                            dashboard_column
+                        ].map(lambda value: f"{float(value):.2f}%")
+
+                    st.subheader("Average Server Utilization Summary")
+
+                    st.dataframe(
+                        df_dashboard_average_utilization_summary,
+                        width="stretch",
+                        hide_index=True,
+                    )
 
             if (
                 not df_dashboard_hourly_energy_comparison.empty
@@ -2269,6 +2600,10 @@ with tab_compare:
                 fig_dashboard_pue_line.update_layout(
                     xaxis_title="Time",
                     yaxis_title="PUE",
+                )
+
+                fig_dashboard_pue_line = apply_dashboard_chart_font(
+                    fig_dashboard_pue_line
                 )
 
                 st.plotly_chart(
@@ -2296,6 +2631,15 @@ with tab_compare:
                 fig_dashboard_energy_consumption.update_layout(
                     xaxis_title="Scenario",
                     yaxis_title="Total Facility Energy kWh",
+                )
+
+                fig_dashboard_energy_consumption.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=22),
+                )
+
+                fig_dashboard_energy_consumption = apply_dashboard_chart_font(
+                    fig_dashboard_energy_consumption
                 )
 
                 st.plotly_chart(
@@ -2350,6 +2694,10 @@ with tab_compare:
                     yaxis_title="Power",
                 )
 
+                fig_dashboard_power_comparison = apply_dashboard_chart_font(
+                    fig_dashboard_power_comparison
+                )
+
                 st.plotly_chart(
                     fig_dashboard_power_comparison,
                     width="stretch",
@@ -2395,26 +2743,59 @@ with tab_compare:
                         yaxis_title="Average Utilization (%)",
                     )
 
+                    fig_dashboard_avg_utilization.update_traces(
+                        textposition="outside",
+                        textfont=dict(size=22),
+                    )
+
+                    fig_dashboard_avg_utilization = apply_dashboard_chart_font(
+                        fig_dashboard_avg_utilization
+                    )
+
                     st.plotly_chart(
                         fig_dashboard_avg_utilization,
                         width="stretch",
                     )
 
-                    fig_dashboard_utilization_distribution = px.box(
-                        df_dashboard_server_summary_comparison,
-                        x="scenario",
-                        y="utilization_rate_pct",
-                        title="Server Utilization Distribution by Scenario",
+                    df_dashboard_utilization_summary = (
+                        df_dashboard_server_summary_comparison
+                        .groupby("scenario", as_index=False)
+                        .agg(
+                            avg_utilization_pct=(
+                                "utilization_rate_pct",
+                                "mean",
+                            ),
+                            max_utilization_pct=(
+                                "utilization_rate_pct",
+                                "max",
+                            ),
+                            min_utilization_pct=(
+                                "utilization_rate_pct",
+                                "min",
+                            ),
+                            server_count=(
+                                "utilization_rate_pct",
+                                "count",
+                            ),
+                        )
                     )
 
-                    fig_dashboard_utilization_distribution.update_layout(
-                        xaxis_title="Scenario",
-                        yaxis_title="Utilization Rate (%)",
-                    )
+                    for dashboard_column in [
+                        "avg_utilization_pct",
+                        "max_utilization_pct",
+                        "min_utilization_pct",
+                    ]:
+                        df_dashboard_utilization_summary[dashboard_column] = (
+                            df_dashboard_utilization_summary[dashboard_column]
+                            .map(lambda value: f"{float(value):.2f}%")
+                        )
 
-                    st.plotly_chart(
-                        fig_dashboard_utilization_distribution,
+                    st.subheader("Server Utilization Summary Table")
+
+                    st.dataframe(
+                        df_dashboard_utilization_summary,
                         width="stretch",
+                        hide_index=True,
                     )
 
         elif dashboard_comparison_metric == "Server Status":
@@ -2462,11 +2843,21 @@ with tab_compare:
                             barmode="group",
                             text_auto=True,
                             title="Status Occurrences by Scenario",
+                            color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
                         )
 
                         fig_dashboard_status_occurrence_comparison.update_layout(
                             xaxis_title="Scenario",
                             yaxis_title="Server-Time Slot Count",
+                        )
+
+                        fig_dashboard_status_occurrence_comparison.update_traces(
+                            textposition="outside",
+                            textfont=dict(size=22),
+                        )
+
+                        fig_dashboard_status_occurrence_comparison = apply_dashboard_chart_font(
+                            fig_dashboard_status_occurrence_comparison
                         )
 
                         st.plotly_chart(
@@ -2500,11 +2891,21 @@ with tab_compare:
                             barmode="group",
                             text_auto=True,
                             title="Unique Servers by Status and Scenario",
+                            color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
                         )
 
                         fig_dashboard_unique_status_comparison.update_layout(
                             xaxis_title="Scenario",
                             yaxis_title="Unique Server Count",
+                        )
+
+                        fig_dashboard_unique_status_comparison.update_traces(
+                            textposition="outside",
+                            textfont=dict(size=22),
+                        )
+
+                        fig_dashboard_unique_status_comparison = apply_dashboard_chart_font(
+                            fig_dashboard_unique_status_comparison
                         )
 
                         st.plotly_chart(
@@ -2570,11 +2971,21 @@ with tab_compare:
                                 barmode="group",
                                 text_auto=True,
                                 title="Daily Server Classification by Scenario",
+                                color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
                             )
 
                             fig_dashboard_daily_status_comparison.update_layout(
                                 xaxis_title="Scenario",
                                 yaxis_title="Number of Servers",
+                            )
+
+                            fig_dashboard_daily_status_comparison.update_traces(
+                                textposition="outside",
+                                textfont=dict(size=22),
+                            )
+
+                            fig_dashboard_daily_status_comparison = apply_dashboard_chart_font(
+                                fig_dashboard_daily_status_comparison
                             )
 
                             st.plotly_chart(
