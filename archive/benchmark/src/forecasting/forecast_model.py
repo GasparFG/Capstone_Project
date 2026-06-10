@@ -778,19 +778,4 @@ def main() -> None:
     print("\nOptimization is_critical distribution:")
     print(optimization_forecast["is_critical"].value_counts())
 
-    print("\nOptimization replica_count distribution:")
-    print(optimization_forecast["replica_count"].value_counts())
-
-    print("\nForecast QA summary:")
-    print(validation)
-
-    print("\nForecast output saved to:")
-    print(f"- {FORECAST_CSV_OUTPUT}")
-    print(f"- {FORECAST_PARQUET_OUTPUT}")
-
-    print("\nOptimization-style output saved to:")
-    print(f"- {OPTIMIZATION_PARQUET_OUTPUT}")
-
-
-if __name__ == "__main__":
-    main()
+    p
