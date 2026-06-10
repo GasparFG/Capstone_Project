@@ -14,8 +14,6 @@ models/forecasting/*.pkl
 # Python cache
 *.pyc
 
-# JSON files
-*.json
 
 outputs/*
 results/*

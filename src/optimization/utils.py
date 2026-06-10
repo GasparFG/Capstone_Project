@@ -14,7 +14,7 @@ def ensure_output_dirs(output_root: Path) -> Dict[str, Path]:
     paths = {
         "optimization": output_root / "outputs" / "optimization",
         "reports": output_root / "outputs" / "results" / "reports",
-        "tables": output_root / "results" / "tables",
+        "tables": output_root / "outputs" / "results" / "tables",
     }
     for path in paths.values():
         path.mkdir(parents=True, exist_ok=True)
