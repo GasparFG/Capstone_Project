@@ -123,8 +123,7 @@ def solve_datacenter_model(
     mdl.setParam("TimeLimit", time_limit)
     mdl.setParam("MIPGap", mip_gap)
     mdl.setParam("Presolve", 2)       # aggressive presolve
-    # focus on finding feasible solutions fast
-    mdl.setParam("MIPFocus", 1)
+    mdl.setParam("MIPFocus", 1)       # focus on finding feasible solutions fast
     mdl.setParam("Cuts", 2)           # aggressive cuts
     mdl.setParam("Heuristics", 0.3)   # more time on heuristics early
     mdl.setParam("Threads", 0)        # use all available cores
@@ -155,6 +154,7 @@ def solve_datacenter_model(
     z = {(j, k): mdl.addVar(vtype=GRB.BINARY, name=f"z_{j}_{k}")
          for j in J for k in K}
 
+
     l_var = {i: mdl.addVar(lb=0.0, name=f"l_{i}") for i in I_B}
     L = {(j, k): mdl.addVar(lb=0.0, ub=GRB.INFINITY, name=f"L_{j}_{k}")
          for j in J for k in K}
@@ -175,6 +175,7 @@ def solve_datacenter_model(
     w = {(j, k): mdl.addVar(lb=0.0, ub=M_psi, name=f"w_{j}_{k}")
          for j in J for k in K}
 
+
     mdl.update()
 
     # -----------------------------
@@ -187,7 +188,7 @@ def solve_datacenter_model(
     # a freshly maintained server has near-zero risk. This creates a genuine
     # economic incentive to schedule PM when wear is high across cycles.
     cm_cost = c_cm * gp.quicksum(
-        lambda0[j] * (w[j, k] / Lambda[j]) * y[j, k]
+        lambda_pm[j] + lambda0[j] * (w[j, k] / Lambda[j]) * y[j, k]
         for j in J for k in K
     )
     sw_cost = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]
@@ -438,6 +439,7 @@ def solve_datacenter_model(
     # --- #36 Replication overhead budget ---
     mdl.addConstr(gp.quicksum((q[i] - 1) * r[i]
                   for i in I_C) <= Q_max, name="c36")
+
 
     # --- Non-critical anti-affinity: jobs cannot share a server ---
     for i1, i2 in G:

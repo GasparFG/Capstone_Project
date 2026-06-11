@@ -126,6 +126,7 @@ def load_config(jobs_json_path: Path, server_json_path: Path) -> Dict[str, Any]:
     C_J = {int(j): float(v) for j, v in sp["C"].items()}
     THETA = {int(j): float(v) for j, v in sp["theta"].items()}
     LAM0 = {int(j): float(v) for j, v in sp["lambda0"].items()}
+    LAM_PM = {int(j): float(v) for j, v in sp["lambda_pm"].items()}
     LAMBDA = {int(j): float(v) for j, v in sp["Lambda"].items()}
 
     psi_0_raw = sp.get("psi_0", {})
@@ -193,6 +194,7 @@ def load_config(jobs_json_path: Path, server_json_path: Path) -> Dict[str, Any]:
         "C_J": C_J,
         "THETA": THETA,
         "LAM0": LAM0,
+        "LAM_PM": LAM_PM,
         "LAMBDA": LAMBDA,
         "PSI_0": PSI_0,
         "ETA": ETA,
@@ -584,7 +586,7 @@ def build_summary(schedule_df: pd.DataFrame, slot_df: pd.DataFrame,
     """
     J = cfg["J"]
     N_SLOTS = cfg["N_SLOTS"]
-    LAM0, LAMBDA, PSI_0 = cfg["LAM0"], cfg["LAMBDA"], cfg["PSI_0"]
+    LAM0, LAMBDA, PSI_0, LAM_PM = cfg["LAM0"], cfg["LAMBDA"], cfg["PSI_0"], cfg["LAM_PM"]
     C_CM = cfg["C_CM"]
     j_index = {j: idx for idx, j in enumerate(J)}
 
@@ -613,7 +615,7 @@ def build_summary(schedule_df: pd.DataFrame, slot_df: pd.DataFrame,
         for k in range(N_SLOTS):
             psi_jk += float(load[jx][k])
             active = 1 if load[jx][k] > 1e-6 else 0
-            cm_cost += C_CM * LAM0[j] * (psi_jk / LAMBDA[j]) * active
+            cm_cost += C_CM * (LAM_PM[j] + LAM0[j] * (psi_jk / LAMBDA[j])) * active
         psi_end[j] = round(psi_jk, 6)
 
     total_cost = total_energy_cost + cm_cost + sw_cost + total_late_cost
