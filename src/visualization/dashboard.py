@@ -175,11 +175,13 @@ def get_output_priority_dirs() -> list[Path]:
     Folder priority for every output table.
 
     The dashboard searches in this order:
-        1. outputs/optimization
-        2. outputs/results/tables
+        1. dashboard_data
+        2. outputs/optimization
+        3. outputs/results/tables
     """
 
     return [
+        PROJECT_ROOT / "dashboard_data",
         PROJECT_ROOT / "outputs" / "optimization",
         PROJECT_ROOT / "outputs" / "results" / "tables",
     ]
@@ -192,24 +194,18 @@ OUTPUT_PRIORITY_DIRS = get_output_priority_dirs()
 # 2.1 DASHBOARD COLOR CONFIGURATION
 # ============================================================
 
+DASHBOARD_NAVY = "#0B1F5B"
+
 DASHBOARD_WORKLOAD_COLOR_MAP = {
-    "batch": "#56CCF2",
     "Batch": "#56CCF2",
-    "batch_avg_load": "#56CCF2",
-    "Batch Load": "#56CCF2",
-    "interactive": "#0B1F5B",
-    "Interactive": "#0B1F5B",
-    "interactive_avg_load": "#0B1F5B",
-    "Interactive Load": "#0B1F5B",
+    "Interactive": DASHBOARD_NAVY,
 }
 
 DASHBOARD_STATUS_COLOR_MAP = {
-    "active": "#2ECC71",
     "Active": "#2ECC71",
-    "maintenance": "#F1C40F",
     "Maintenance": "#F1C40F",
-    "idle": "#E74C3C",
     "Idle": "#E74C3C",
+    "Unknown": "#7F8C8D",
 }
 
 DASHBOARD_COST_COLOR_MAP = {
@@ -218,6 +214,12 @@ DASHBOARD_COST_COLOR_MAP = {
     "CM": "#E67E22",
     "Switch": "#95A5A6",
     "Lateness": "#E74C3C",
+}
+
+DASHBOARD_POWER_COLOR_MAP = {
+    "IT Power": "#7EC8FF",
+    "Cooling Power": "#1565C0",
+    "Total Facility Power": "#FFB3B3",
 }
 
 
@@ -287,10 +289,7 @@ def infer_dashboard_scenario_from_filename(
     table_prefix: str,
 ) -> str:
     """
-    Infers scenario name from filenames like:
-        performance_metrics_base_20260609-024827.csv
-        optimization_solution_high_demand_20260609-024827.csv
-        server_summary_reduced_capacity_20260609-024827.xlsx
+    Infers scenario name from filenames.
     """
 
     stem = Path(file_name).stem
@@ -423,10 +422,6 @@ def keep_latest_dashboard_run_per_scenario(
 def load_all_available_dashboard_outputs() -> dict[str, pd.DataFrame]:
     """
     Loads all currently available optimization outputs.
-
-    File priority:
-        outputs/optimization first
-        outputs/results/tables second
     """
 
     df_dashboard_performance = keep_latest_dashboard_run_per_scenario(
@@ -540,24 +535,113 @@ def apply_dashboard_chart_font(
 
 def apply_dashboard_pie_font(fig):
     """
-    Applies readable labels to pie charts.
+    Applies readable labels to pie charts and removes the default title area.
     """
 
     fig.update_traces(
         textposition="inside",
         textinfo="percent+label",
-        textfont=dict(size=22),
+        textfont=dict(
+            size=22,
+            color="white",
+        ),
+        marker=dict(
+            line=dict(
+                color="rgba(255,255,255,0.18)",
+                width=1,
+            )
+        ),
     )
 
     fig.update_layout(
+        title=None,
+        title_text="",
+        showlegend=True,
         font=dict(size=19),
+        margin=dict(
+            l=10,
+            r=10,
+            t=10,
+            b=10,
+        ),
         legend=dict(
-            font=dict(size=19),
-            title=dict(font=dict(size=19)),
+            font=dict(size=18),
+            title_text="",
         ),
     )
 
     return fig
+
+
+def apply_dashboard_dark_navy_bar_border(fig):
+    """
+    Adds a white border to any dark navy bar trace.
+    """
+
+    for dashboard_trace in fig.data:
+        if dashboard_trace.type == "bar" and dashboard_trace.name == "Interactive":
+            dashboard_trace.marker.line.color = "white"
+            dashboard_trace.marker.line.width = 1.6
+
+        if dashboard_trace.type == "bar":
+            marker_color = getattr(dashboard_trace.marker, "color", None)
+
+            if marker_color == DASHBOARD_NAVY:
+                dashboard_trace.marker.line.color = "white"
+                dashboard_trace.marker.line.width = 1.6
+
+    return fig
+
+
+def normalize_dashboard_job_type(value) -> str:
+    """
+    Normalizes job type labels.
+    """
+
+    value_string = str(value).strip().lower()
+
+    if value_string == "batch":
+        return "Batch"
+
+    if value_string == "interactive":
+        return "Interactive"
+
+    return str(value).strip().title()
+
+
+def normalize_dashboard_status_label(value) -> str:
+    """
+    Normalizes status labels.
+    """
+
+    value_string = str(value).strip().lower()
+
+    if value_string == "active":
+        return "Active"
+
+    if value_string == "maintenance":
+        return "Maintenance"
+
+    if value_string == "idle":
+        return "Idle"
+
+    return "Unknown"
+
+
+def normalize_dashboard_power_type(value) -> str:
+    """
+    Normalizes power variable labels.
+    """
+
+    value_string = str(value).strip()
+
+    power_map = {
+        "PIT_W": "IT Power",
+        "Pcool_W": "Cooling Power",
+        "Ptot_W": "Total Facility Power",
+    }
+
+    return power_map.get(value_string, value_string)
 
 
 def require_dashboard_columns(
@@ -675,12 +759,6 @@ def format_dashboard_number(value, decimals: int = 2) -> str:
 def format_dashboard_slot_as_time(slot_value) -> str:
     """
     Converts a 15-minute slot number into HH:MM format.
-
-    Slot 0  -> 00:00
-    Slot 1  -> 00:15
-    Slot 2  -> 00:30
-    ...
-    Slot 95 -> 23:45
     """
 
     try:
@@ -720,18 +798,25 @@ def classify_dashboard_daily_server_status(
     Classifies each server once for the whole day.
 
     Priority:
-        maintenance > active > idle
+        active > maintenance > idle
     """
 
-    statuses = set(df_dashboard_server_group["status"].dropna())
+    statuses = set(
+        df_dashboard_server_group["status_display"].dropna()
+        if "status_display" in df_dashboard_server_group.columns
+        else df_dashboard_server_group["status"].dropna()
+    )
 
-    if "maintenance" in statuses:
-        return "maintenance"
+    if "Active" in statuses:
+        return "Active"
 
-    if "active" in statuses:
-        return "active"
+    if "Maintenance" in statuses:
+        return "Maintenance"
 
-    return "idle"
+    if "Idle" in statuses:
+        return "Idle"
+
+    return "Unknown"
 
 
 def build_dashboard_status_occurrence_counts(
@@ -747,14 +832,32 @@ def build_dashboard_status_occurrence_counts(
     if "status" not in df_dashboard_server_load.columns:
         return pd.DataFrame()
 
-    df_dashboard_status_occurrences = (
-        df_dashboard_server_load
-        .groupby("status")
-        .size()
-        .reset_index(name="server_slot_count")
+    df_dashboard_status = df_dashboard_server_load.copy()
+    df_dashboard_status["status_display"] = df_dashboard_status["status"].apply(
+        normalize_dashboard_status_label
     )
 
-    return df_dashboard_status_occurrences
+    df_dashboard_status_occurrences = (
+        df_dashboard_status
+        .groupby("status_display")
+        .size()
+        .reset_index(name="server_slot_count")
+        .rename(columns={"status_display": "status"})
+    )
+
+    status_order = ["Active", "Maintenance", "Idle", "Unknown"]
+
+    df_dashboard_status_occurrences["status"] = pd.Categorical(
+        df_dashboard_status_occurrences["status"],
+        categories=status_order,
+        ordered=True,
+    )
+
+    return (
+        df_dashboard_status_occurrences
+        .sort_values("status")
+        .reset_index(drop=True)
+    )
 
 
 def build_dashboard_unique_server_status_counts(
@@ -777,14 +880,32 @@ def build_dashboard_unique_server_status_counts(
     if not required_columns.issubset(df_dashboard_server_load.columns):
         return pd.DataFrame()
 
-    df_dashboard_unique_status_counts = (
-        df_dashboard_server_load
-        .groupby("status")["server_id"]
-        .nunique()
-        .reset_index(name="unique_server_count")
+    df_dashboard_status = df_dashboard_server_load.copy()
+    df_dashboard_status["status_display"] = df_dashboard_status["status"].apply(
+        normalize_dashboard_status_label
     )
 
-    return df_dashboard_unique_status_counts
+    df_dashboard_unique_status_counts = (
+        df_dashboard_status
+        .groupby("status_display")["server_id"]
+        .nunique()
+        .reset_index(name="unique_server_count")
+        .rename(columns={"status_display": "status"})
+    )
+
+    status_order = ["Active", "Maintenance", "Idle", "Unknown"]
+
+    df_dashboard_unique_status_counts["status"] = pd.Categorical(
+        df_dashboard_unique_status_counts["status"],
+        categories=status_order,
+        ordered=True,
+    )
+
+    return (
+        df_dashboard_unique_status_counts
+        .sort_values("status")
+        .reset_index(drop=True)
+    )
 
 
 def build_dashboard_daily_server_classification(
@@ -792,9 +913,6 @@ def build_dashboard_daily_server_classification(
 ) -> pd.DataFrame:
     """
     Builds one final daily status per server.
-
-    Priority:
-        maintenance > active > idle
     """
 
     if df_dashboard_server_load.empty:
@@ -808,8 +926,13 @@ def build_dashboard_daily_server_classification(
     if not required_columns.issubset(df_dashboard_server_load.columns):
         return pd.DataFrame()
 
+    df_dashboard_status = df_dashboard_server_load.copy()
+    df_dashboard_status["status_display"] = df_dashboard_status["status"].apply(
+        normalize_dashboard_status_label
+    )
+
     df_dashboard_daily_status = (
-        df_dashboard_server_load
+        df_dashboard_status
         .groupby("server_id")
         .apply(classify_dashboard_daily_server_status, include_groups=False)
         .reset_index(name="daily_status")
@@ -841,7 +964,19 @@ def build_dashboard_daily_server_status_counts(
         .reset_index(name="server_count")
     )
 
-    return df_dashboard_daily_status_counts
+    status_order = ["Active", "Maintenance", "Idle", "Unknown"]
+
+    df_dashboard_daily_status_counts["daily_status"] = pd.Categorical(
+        df_dashboard_daily_status_counts["daily_status"],
+        categories=status_order,
+        ordered=True,
+    )
+
+    return (
+        df_dashboard_daily_status_counts
+        .sort_values("daily_status")
+        .reset_index(drop=True)
+    )
 
 
 def get_dashboard_status_color(status: str) -> str:
@@ -849,12 +984,11 @@ def get_dashboard_status_color(status: str) -> str:
     Returns a consistent color for each server status.
     """
 
+    normalized_status = normalize_dashboard_status_label(status)
+
     return DASHBOARD_STATUS_COLOR_MAP.get(
-        str(status),
-        DASHBOARD_STATUS_COLOR_MAP.get(
-            str(status).lower(),
-            "#7F8C8D",
-        ),
+        normalized_status,
+        "#7F8C8D",
     )
 
 
@@ -883,6 +1017,10 @@ def render_dashboard_server_status_grid(
         .copy()
     )
 
+    df_dashboard_grid["status_display"] = df_dashboard_grid["status"].apply(
+        normalize_dashboard_status_label
+    )
+
     dashboard_servers = df_dashboard_grid.to_dict("records")
 
     for row_start in range(0, len(dashboard_servers), servers_per_row):
@@ -894,7 +1032,7 @@ def render_dashboard_server_status_grid(
 
         for index, dashboard_server in enumerate(dashboard_row_servers):
             dashboard_server_id = dashboard_server["server_id"]
-            dashboard_status = dashboard_server["status"]
+            dashboard_status = dashboard_server["status_display"]
             dashboard_color = get_dashboard_status_color(dashboard_status)
 
             with dashboard_columns[index]:
@@ -981,11 +1119,11 @@ if df_dashboard_performance.empty:
 
     st.code(
         """
-performance_metrics_base_20260609-024827.csv
-optimization_solution_base_20260609-024827.csv
-server_summary_base_20260609-024827.csv
-hourly_energy_thermal_base_20260609-024827.csv
-server_load_timeseries_base_20260609-024827.csv
+performance_metrics_base.csv
+optimization_solution_base.csv
+server_summary_base.csv
+hourly_energy_thermal_base.csv
+server_load_timeseries_base.csv
         """.strip()
     )
 
@@ -1274,7 +1412,10 @@ with tab_overview:
             )
 
             fig_dashboard_cost_breakdown_pct.update_traces(
-                textfont=dict(size=24),
+                textfont=dict(
+                    size=24,
+                    color="white",
+                ),
                 textposition="inside",
             )
 
@@ -1285,6 +1426,13 @@ with tab_overview:
                 axis_tick_size=20,
                 legend_size=20,
                 text_size=24,
+            )
+
+            fig_dashboard_cost_breakdown_pct.update_traces(
+                textfont=dict(
+                    size=24,
+                    color="white",
+                )
             )
 
             st.plotly_chart(
@@ -1378,31 +1526,47 @@ with tab_overview:
                 .copy()
             )
 
-            df_dashboard_top_5_servers = df_dashboard_top_5_servers.rename(
-                columns={
-                    "server_id": "Server",
-                    "utilization_rate_pct": "Utilization",
-                }
+            df_dashboard_top_5_servers["server_label"] = (
+                "Server " + df_dashboard_top_5_servers["server_id"].astype(str)
             )
 
-            df_dashboard_top_5_servers["Utilization"] = (
-                df_dashboard_top_5_servers["Utilization"]
-                .map(lambda value: f"{float(value):.2f}%")
+            fig_dashboard_top_5_servers = px.bar(
+                df_dashboard_top_5_servers,
+                x="utilization_rate_pct",
+                y="server_label",
+                orientation="h",
+                title="Top 5 Servers by Utilization",
+                text=df_dashboard_top_5_servers["utilization_rate_pct"].map(
+                    lambda value: f"{float(value):.2f}%"
+                ),
             )
 
-            table_left_space, table_middle_space, table_right_space = st.columns(
-                [1.3, 1.4, 1.3]
+            fig_dashboard_top_5_servers.update_traces(
+                marker_color=DASHBOARD_NAVY,
+                marker_line_color="white",
+                marker_line_width=1.6,
+                textposition="outside",
+                textfont=dict(size=21),
             )
 
-            with table_middle_space:
-                st.dataframe(
-                    df_dashboard_top_5_servers,
-                    width="stretch",
-                    hide_index=True,
-                )
+            fig_dashboard_top_5_servers.update_layout(
+                xaxis_title="Utilization Rate (%)",
+                yaxis_title="Server",
+                height=420,
+                yaxis=dict(autorange="reversed"),
+            )
+
+            fig_dashboard_top_5_servers = apply_dashboard_chart_font(
+                fig_dashboard_top_5_servers
+            )
+
+            st.plotly_chart(
+                fig_dashboard_top_5_servers,
+                width="stretch",
+            )
 
         else:
-            st.warning("No server summary available for top server table.")
+            st.warning("No server summary available for top server chart.")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1466,27 +1630,28 @@ with tab_jobs:
                     df_dashboard_solution_main
                 )
 
+                df_dashboard_unique_jobs["job_type_display"] = (
+                    df_dashboard_unique_jobs["job_type"]
+                    .apply(normalize_dashboard_job_type)
+                )
+
                 df_dashboard_job_type_counts = (
                     df_dashboard_unique_jobs
-                    .groupby("job_type")
+                    .groupby("job_type_display")
                     .size()
                     .reset_index(name="job_count")
+                    .rename(columns={"job_type_display": "job_type"})
                 )
 
                 fig_dashboard_job_type = px.pie(
                     df_dashboard_job_type_counts,
                     names="job_type",
                     values="job_count",
-                    title="Proportion of Job Types",
                     color="job_type",
                     color_discrete_map=DASHBOARD_WORKLOAD_COLOR_MAP,
                 )
 
                 fig_dashboard_job_type = apply_dashboard_pie_font(
-                    fig_dashboard_job_type
-                )
-
-                fig_dashboard_job_type = apply_dashboard_chart_font(
                     fig_dashboard_job_type
                 )
 
@@ -1515,16 +1680,22 @@ with tab_jobs:
                     df_dashboard_unique_jobs["start_slot"]
                 )
 
+                df_dashboard_unique_jobs["job_type_display"] = (
+                    df_dashboard_unique_jobs["job_type"]
+                    .apply(normalize_dashboard_job_type)
+                )
+
                 df_dashboard_jobs_by_hour_type = (
                     df_dashboard_unique_jobs
                     .groupby(
                         [
                             "start_hour",
-                            "job_type",
+                            "job_type_display",
                         ]
                     )
                     .size()
                     .reset_index(name="job_count")
+                    .rename(columns={"job_type_display": "job_type"})
                 )
 
                 fig_dashboard_jobs_by_hour = px.bar(
@@ -1543,6 +1714,10 @@ with tab_jobs:
                 )
 
                 fig_dashboard_jobs_by_hour = apply_dashboard_chart_font(
+                    fig_dashboard_jobs_by_hour
+                )
+
+                fig_dashboard_jobs_by_hour = apply_dashboard_dark_navy_bar_border(
                     fig_dashboard_jobs_by_hour
                 )
 
@@ -1735,6 +1910,10 @@ with tab_servers:
                     fig_dashboard_load_type
                 )
 
+                fig_dashboard_load_type = apply_dashboard_dark_navy_bar_border(
+                    fig_dashboard_load_type
+                )
+
                 st.plotly_chart(
                     fig_dashboard_load_type,
                     width="stretch",
@@ -1855,9 +2034,32 @@ with tab_servers:
                     if st.session_state.dashboard_heatmap_slot > dashboard_max_slot:
                         st.session_state.dashboard_heatmap_slot = dashboard_max_slot
 
-                    top_col_left, top_col_right = st.columns([5, 2])
+                    dashboard_slider_value = st.slider(
+                        "Select time slot",
+                        min_value=dashboard_min_slot,
+                        max_value=dashboard_max_slot,
+                        value=int(st.session_state.dashboard_heatmap_slot),
+                        step=1,
+                        key="dashboard_heatmap_slot_slider",
+                    )
 
-                    with top_col_left:
+                    if dashboard_slider_value != st.session_state.dashboard_heatmap_slot:
+                        st.session_state.dashboard_heatmap_slot = dashboard_slider_value
+                        st.rerun()
+
+                    dashboard_selected_slot = int(
+                        st.session_state.dashboard_heatmap_slot
+                    )
+
+                    dashboard_selected_time = format_dashboard_slot_as_time(
+                        dashboard_selected_slot
+                    )
+
+                    bottom_col_left, bottom_col_center, bottom_col_right = st.columns(
+                        [4, 3, 2]
+                    )
+
+                    with bottom_col_left:
                         st.markdown(
                             """
                             <div style="
@@ -1866,7 +2068,7 @@ with tab_servers:
                                 justify-content:flex-start;
                                 align-items:center;
                                 flex-wrap:wrap;
-                                margin-top:14px;
+                                margin-top:20px;
                                 margin-bottom:10px;
                             ">
                                 <span style="background-color:#2ECC71; color:#111; padding:8px 14px; border-radius:8px; font-weight:700;">
@@ -1883,7 +2085,19 @@ with tab_servers:
                             unsafe_allow_html=True,
                         )
 
-                    with top_col_right:
+                    with bottom_col_center:
+                        st.markdown(
+                            f"""
+                            <div class="heatmap-clock-container">
+                                <div class="heatmap-clock-label">Current Time</div>
+                                <div class="heatmap-clock-time">{dashboard_selected_time}</div>
+                                <div class="heatmap-clock-slot">Slot {dashboard_selected_slot}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with bottom_col_right:
                         nav_col1, nav_col2 = st.columns(2)
 
                         with nav_col1:
@@ -1909,38 +2123,6 @@ with tab_servers:
                                     int(st.session_state.dashboard_heatmap_slot) + 1,
                                 )
                                 st.rerun()
-
-                    dashboard_slider_value = st.slider(
-                        "Select time slot",
-                        min_value=dashboard_min_slot,
-                        max_value=dashboard_max_slot,
-                        value=int(st.session_state.dashboard_heatmap_slot),
-                        step=1,
-                        key="dashboard_heatmap_slot_slider",
-                    )
-
-                    if dashboard_slider_value != st.session_state.dashboard_heatmap_slot:
-                        st.session_state.dashboard_heatmap_slot = dashboard_slider_value
-                        st.rerun()
-
-                    dashboard_selected_slot = int(
-                        st.session_state.dashboard_heatmap_slot
-                    )
-
-                    dashboard_selected_time = format_dashboard_slot_as_time(
-                        dashboard_selected_slot
-                    )
-
-                    st.markdown(
-                        f"""
-                        <div class="heatmap-clock-container">
-                            <div class="heatmap-clock-label">Current Time</div>
-                            <div class="heatmap-clock-time">{dashboard_selected_time}</div>
-                            <div class="heatmap-clock-slot">Slot {dashboard_selected_slot}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
 
                     st.caption(
                         f"Selected slot: {dashboard_selected_slot} | Time: {dashboard_selected_time}"
@@ -2037,17 +2219,24 @@ with tab_energy:
                     )
                 )
 
+                df_dashboard_power["power_type_display"] = (
+                    df_dashboard_power["power_type"]
+                    .apply(normalize_dashboard_power_type)
+                )
+
                 fig_dashboard_power = px.line(
                     df_dashboard_power,
                     x="time",
                     y="power_watts",
-                    color="power_type",
+                    color="power_type_display",
                     title="IT Power, Cooling Power, and Total Facility Power",
+                    color_discrete_map=DASHBOARD_POWER_COLOR_MAP,
                 )
 
                 fig_dashboard_power.update_layout(
                     xaxis_title="Time",
                     yaxis_title="Power",
+                    legend_title_text="Power Type",
                 )
 
                 fig_dashboard_power = apply_dashboard_chart_font(
@@ -2185,16 +2374,19 @@ with tab_maintenance:
                             df_dashboard_status_occurrences,
                             names="status",
                             values="server_slot_count",
-                            title="",
                             color="status",
                             color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                            category_orders={
+                                "status": [
+                                    "Active",
+                                    "Maintenance",
+                                    "Idle",
+                                    "Unknown",
+                                ]
+                            },
                         )
 
                         fig_dashboard_status_occurrences = apply_dashboard_pie_font(
-                            fig_dashboard_status_occurrences
-                        )
-
-                        fig_dashboard_status_occurrences = apply_dashboard_chart_font(
                             fig_dashboard_status_occurrences
                         )
 
@@ -2223,16 +2415,19 @@ with tab_maintenance:
                             df_dashboard_unique_status_counts,
                             names="status",
                             values="unique_server_count",
-                            title="",
                             color="status",
                             color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                            category_orders={
+                                "status": [
+                                    "Active",
+                                    "Maintenance",
+                                    "Idle",
+                                    "Unknown",
+                                ]
+                            },
                         )
 
                         fig_dashboard_unique_status = apply_dashboard_pie_font(
-                            fig_dashboard_unique_status
-                        )
-
-                        fig_dashboard_unique_status = apply_dashboard_chart_font(
                             fig_dashboard_unique_status
                         )
 
@@ -2249,7 +2444,7 @@ with tab_maintenance:
                 with col_status_3:
                     st.markdown("### Daily Server Classification")
                     st.markdown(
-                        '<div class="status-subtitle">Counts each server once using this priority: maintenance, active, then idle.</div>',
+                        '<div class="status-subtitle">Counts each server once using this priority: active, maintenance, then idle.</div>',
                         unsafe_allow_html=True,
                     )
 
@@ -2261,16 +2456,19 @@ with tab_maintenance:
                             df_dashboard_daily_status_counts,
                             names="daily_status",
                             values="server_count",
-                            title="",
                             color="daily_status",
                             color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                            category_orders={
+                                "daily_status": [
+                                    "Active",
+                                    "Maintenance",
+                                    "Idle",
+                                    "Unknown",
+                                ]
+                            },
                         )
 
                         fig_dashboard_daily_status = apply_dashboard_pie_font(
-                            fig_dashboard_daily_status
-                        )
-
-                        fig_dashboard_daily_status = apply_dashboard_chart_font(
                             fig_dashboard_daily_status
                         )
 
@@ -2298,7 +2496,6 @@ with tab_compare:
         dashboard_comparison_metric = st.radio(
             "Metric to compare",
             [
-                "Total Cost",
                 "Cost Breakdown",
                 "Jobs Late",
                 "Average PUE",
@@ -2310,64 +2507,7 @@ with tab_compare:
             key="comparison_metric",
         )
 
-        if dashboard_comparison_metric == "Total Cost":
-            if require_dashboard_columns(
-                df_dashboard_performance_comparison,
-                [
-                    "scenario",
-                    "total_cost",
-                ],
-                "performance_metrics",
-            ):
-                fig_dashboard_total_cost = px.bar(
-                    df_dashboard_performance_comparison,
-                    x="scenario",
-                    y="total_cost",
-                    text_auto=".2f",
-                    title="Total Cost by Scenario",
-                )
-
-                fig_dashboard_total_cost.update_layout(
-                    xaxis_title="Scenario",
-                    yaxis_title="Total Cost",
-                )
-
-                fig_dashboard_total_cost.update_traces(
-                    textposition="outside",
-                    textfont=dict(size=22),
-                )
-
-                fig_dashboard_total_cost = apply_dashboard_chart_font(
-                    fig_dashboard_total_cost
-                )
-
-                st.plotly_chart(
-                    fig_dashboard_total_cost,
-                    width="stretch",
-                )
-
-                dashboard_total_cost_columns = [
-                    column
-                    for column in [
-                        "scenario",
-                        "total_cost",
-                        "energy_cost",
-                        "pm_cost",
-                        "expected_cm_cost",
-                        "switching_cost",
-                        "lateness_cost",
-                    ]
-                    if column in df_dashboard_performance_comparison.columns
-                ]
-
-                st.dataframe(
-                    df_dashboard_performance_comparison[
-                        dashboard_total_cost_columns
-                    ],
-                    width="stretch",
-                )
-
-        elif dashboard_comparison_metric == "Cost Breakdown":
+        if dashboard_comparison_metric == "Cost Breakdown":
             dashboard_cost_columns = [
                 "energy_cost",
                 "pm_cost",
@@ -2409,6 +2549,22 @@ with tab_compare:
                     )
                 )
 
+                df_dashboard_total_cost_labels = (
+                    df_dashboard_cost_breakdown_comparison
+                    .groupby("scenario", as_index=False)["cost"]
+                    .sum()
+                    .rename(columns={"cost": "total_cost"})
+                )
+
+                df_dashboard_cost_breakdown_comparison = (
+                    df_dashboard_cost_breakdown_comparison
+                    .merge(
+                        df_dashboard_total_cost_labels,
+                        on="scenario",
+                        how="left",
+                    )
+                )
+
                 df_dashboard_cost_breakdown_comparison["cost_label"] = (
                     df_dashboard_cost_breakdown_comparison["cost"]
                     .map(lambda value: f"${float(value):,.2f}")
@@ -2416,30 +2572,65 @@ with tab_compare:
 
                 fig_dashboard_cost_breakdown = px.bar(
                     df_dashboard_cost_breakdown_comparison,
-                    x="scenario",
-                    y="cost",
+                    x="cost",
+                    y="scenario",
                     color="cost_type",
+                    orientation="h",
                     barmode="stack",
                     text="cost_label",
                     title="Cost Breakdown by Scenario",
                     color_discrete_map=DASHBOARD_COST_COLOR_MAP,
+                    category_orders={
+                        "cost_type": [
+                            "Energy",
+                            "PM",
+                            "CM",
+                            "Switch",
+                            "Lateness",
+                        ]
+                    },
                 )
 
                 fig_dashboard_cost_breakdown.update_layout(
-                    xaxis_title="Scenario",
-                    yaxis_title="Cost",
+                    xaxis_title="Cost",
+                    yaxis_title="Scenario",
                     legend_title_text="Cost Type",
-                    uniformtext_minsize=18,
+                    uniformtext_minsize=17,
                     uniformtext_mode="show",
+                    height=520,
+                    yaxis=dict(autorange="reversed"),
                 )
 
                 for dashboard_trace in fig_dashboard_cost_breakdown.data:
-                    if dashboard_trace.name == "Switch":
-                        dashboard_trace.textposition = "outside"
-                        dashboard_trace.textfont = dict(size=21)
-                    else:
-                        dashboard_trace.textposition = "inside"
-                        dashboard_trace.textfont = dict(size=21)
+                    dashboard_trace.textposition = "inside"
+                    dashboard_trace.textfont = dict(
+                        size=20,
+                        color="white",
+                    )
+
+                max_dashboard_total_cost = (
+                    df_dashboard_total_cost_labels["total_cost"].max()
+                )
+
+                for _, dashboard_row in df_dashboard_total_cost_labels.iterrows():
+                    fig_dashboard_cost_breakdown.add_annotation(
+                        x=float(dashboard_row["total_cost"]) * 1.02,
+                        y=dashboard_row["scenario"],
+                        text=f"Total: {format_dashboard_currency(dashboard_row['total_cost'])}",
+                        showarrow=False,
+                        font=dict(
+                            size=20,
+                            color="white",
+                        ),
+                        xanchor="left",
+                    )
+
+                fig_dashboard_cost_breakdown.update_xaxes(
+                    range=[
+                        0,
+                        float(max_dashboard_total_cost) * 1.22,
+                    ]
+                )
 
                 fig_dashboard_cost_breakdown = apply_dashboard_chart_font(
                     fig_dashboard_cost_breakdown
@@ -2448,6 +2639,16 @@ with tab_compare:
                 st.plotly_chart(
                     fig_dashboard_cost_breakdown,
                     width="stretch",
+                )
+
+                st.dataframe(
+                    df_dashboard_total_cost_labels.assign(
+                        total_cost=df_dashboard_total_cost_labels["total_cost"].map(
+                            format_dashboard_currency
+                        )
+                    ),
+                    width="stretch",
+                    hide_index=True,
                 )
             else:
                 st.warning("No cost breakdown columns found.")
@@ -2536,8 +2737,6 @@ with tab_compare:
                     fig_dashboard_average_pue,
                     width="stretch",
                 )
-
-                df_dashboard_average_utilization_summary = pd.DataFrame()
 
                 if not df_dashboard_server_summary_comparison.empty and {
                     "scenario",
@@ -2680,18 +2879,25 @@ with tab_compare:
                     )
                 )
 
+                df_dashboard_power_comparison["power_type_display"] = (
+                    df_dashboard_power_comparison["power_type"]
+                    .apply(normalize_dashboard_power_type)
+                )
+
                 fig_dashboard_power_comparison = px.line(
                     df_dashboard_power_comparison,
                     x="time",
                     y="power_watts",
-                    color="scenario",
-                    line_dash="power_type",
+                    color="power_type_display",
+                    line_dash="scenario",
                     title="Power Consumption by Scenario",
+                    color_discrete_map=DASHBOARD_POWER_COLOR_MAP,
                 )
 
                 fig_dashboard_power_comparison.update_layout(
                     xaxis_title="Time",
                     yaxis_title="Power",
+                    legend_title_text="Power Type",
                 )
 
                 fig_dashboard_power_comparison = apply_dashboard_chart_font(
@@ -2822,17 +3028,27 @@ with tab_compare:
                         key="status_comparison_view",
                     )
 
+                    df_dashboard_server_load_comparison_clean = (
+                        df_dashboard_server_load_comparison.copy()
+                    )
+
+                    df_dashboard_server_load_comparison_clean["status_display"] = (
+                        df_dashboard_server_load_comparison_clean["status"]
+                        .apply(normalize_dashboard_status_label)
+                    )
+
                     if dashboard_status_comparison_view == "Status Occurrences":
                         df_dashboard_status_occurrence_comparison = (
-                            df_dashboard_server_load_comparison
+                            df_dashboard_server_load_comparison_clean
                             .groupby(
                                 [
                                     "scenario",
-                                    "status",
+                                    "status_display",
                                 ]
                             )
                             .size()
                             .reset_index(name="server_slot_count")
+                            .rename(columns={"status_display": "status"})
                         )
 
                         fig_dashboard_status_occurrence_comparison = px.bar(
@@ -2844,6 +3060,14 @@ with tab_compare:
                             text_auto=True,
                             title="Status Occurrences by Scenario",
                             color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                            category_orders={
+                                "status": [
+                                    "Active",
+                                    "Maintenance",
+                                    "Idle",
+                                    "Unknown",
+                                ]
+                            },
                         )
 
                         fig_dashboard_status_occurrence_comparison.update_layout(
@@ -2872,15 +3096,16 @@ with tab_compare:
 
                     elif dashboard_status_comparison_view == "Unique Servers by Status":
                         df_dashboard_unique_status_comparison = (
-                            df_dashboard_server_load_comparison
+                            df_dashboard_server_load_comparison_clean
                             .groupby(
                                 [
                                     "scenario",
-                                    "status",
+                                    "status_display",
                                 ]
                             )["server_id"]
                             .nunique()
                             .reset_index(name="unique_server_count")
+                            .rename(columns={"status_display": "status"})
                         )
 
                         fig_dashboard_unique_status_comparison = px.bar(
@@ -2892,6 +3117,14 @@ with tab_compare:
                             text_auto=True,
                             title="Unique Servers by Status and Scenario",
                             color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                            category_orders={
+                                "status": [
+                                    "Active",
+                                    "Maintenance",
+                                    "Idle",
+                                    "Unknown",
+                                ]
+                            },
                         )
 
                         fig_dashboard_unique_status_comparison.update_layout(
@@ -2922,7 +3155,7 @@ with tab_compare:
                         dashboard_daily_classification_rows = []
 
                         for scenario, df_dashboard_scenario_load in (
-                            df_dashboard_server_load_comparison.groupby(
+                            df_dashboard_server_load_comparison_clean.groupby(
                                 "scenario")
                         ):
                             df_dashboard_daily_status = (
@@ -2972,6 +3205,14 @@ with tab_compare:
                                 text_auto=True,
                                 title="Daily Server Classification by Scenario",
                                 color_discrete_map=DASHBOARD_STATUS_COLOR_MAP,
+                                category_orders={
+                                    "daily_status": [
+                                        "Active",
+                                        "Maintenance",
+                                        "Idle",
+                                        "Unknown",
+                                    ]
+                                },
                             )
 
                             fig_dashboard_daily_status_comparison.update_layout(
