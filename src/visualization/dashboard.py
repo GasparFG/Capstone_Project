@@ -175,13 +175,13 @@ def get_output_priority_dirs() -> list[Path]:
     Folder priority for every output table.
 
     The dashboard searches in this order:
-        1. dashboard_data
+        1. dashboard_dt
         2. outputs/optimization
         3. outputs/results/tables
     """
 
     return [
-        PROJECT_ROOT / "dashboard_data",
+        PROJECT_ROOT / "dashboard_dt",
         PROJECT_ROOT / "outputs" / "optimization",
         PROJECT_ROOT / "outputs" / "results" / "tables",
     ]
