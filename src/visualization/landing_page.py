@@ -62,8 +62,8 @@ satisfying capacity, reliability, and operational constraints.
 
 # ---------------- LINKS ----------------
 st.link_button(
-"💻 View GitHub Repository",
-"https://github.com/GasparFG/DAMO_class_23"
+    "💻 View GitHub Repository",
+    "https://github.com/GasparFG/Workload_Prediction_and_Scheduling_Optimization_for_Energy_Efficient_Reliable_and_Service-Aware_DC"
 )
 
 # ---------------- PDF DOWNLOAD ----------------
