@@ -188,7 +188,7 @@ def solve_datacenter_model(
     # a freshly maintained server has near-zero risk. This creates a genuine
     # economic incentive to schedule PM when wear is high across cycles.
     cm_cost = c_cm * gp.quicksum(
-        lambda0[j] * (psi[j, k] / Lambda[j]) * y[j, k]
+        lambda_pm[j] + lambda0[j] * (w[j, k] / Lambda[j]) * y[j, k]
         for j in J for k in K
     )
     sw_cost = c_sw * gp.quicksum(d_on[j, k] + d_off[j, k]

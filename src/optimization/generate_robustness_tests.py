@@ -97,11 +97,11 @@ DEFAULT_PSI_STAGE: str       = "mid_life"
 # GPU / CPU physical parameters — fixed to baseline JSON values
 _GPU = dict(
     C=1.0, theta=0.30, P0=0.5819, dP=0.2875, alpha=0.90,
-    lambda0=8.5e-6, lambda_pm=0.000702, Lambda=7344,
+    lambda0=0.00001609, lambda_pm=0.00001633, Lambda=7344,
 )
 _CPU = dict(
     C=0.420139, theta=0.20, P0=0.2404, dP=0.1207, alpha=0.88,
-    lambda0=8.0e-6, lambda_pm=0.000600, Lambda=2722,
+    lambda0=0.00001609, lambda_pm=0.00001633, Lambda=2722,
 )
 
 # ---------------------------------------------------------------------------
