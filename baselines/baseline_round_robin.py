@@ -21,7 +21,7 @@ SCHEDULING POLICY:
     - No lookahead, no demand forecasting, no energy awareness.
 
 ALIGNMENT WITH MILP MODEL (for apples-to-apples comparison):
-    - Input:  same parquet file (data/processed/optimization_forecast_jobs.parquet)
+    - Input:  same parquet file (data/processed/optimization_ensemble_jobs.parquet)
     - Job preprocessing: identical filtering, r formula, eligibility, and
       deadline logic to build_jobs_json_from_forecast.py
     - Power model: same P0, dP, alpha, eta, P_ov constants as solver.py
@@ -158,7 +158,7 @@ def load_jobs() -> pd.DataFrame:
     Returns:
         DataFrame sorted by release_slot (arrival order), one row per job.
     """
-    fc_path = Path("data/processed/optimization_forecast_jobs.parquet")
+    fc_path = Path("data/processed/optimization_ensemble_jobs.parquet")
     if not fc_path.exists():
         raise FileNotFoundError(
             f"Forecast parquet not found: {fc_path}. "

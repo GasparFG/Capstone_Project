@@ -50,7 +50,7 @@ def main():
             continue
 
         name        = case["case_name"]
-        case_outdir = output_root / name
+        case_outdir = output_root
         case_outdir.mkdir(parents=True, exist_ok=True)
 
         print(f"[{idx+1:>3}/{total}] {name} ... ", end="", flush=True)

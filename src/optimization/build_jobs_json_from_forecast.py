@@ -5,7 +5,7 @@ Translates job-level forecast output into the JSON structure expected by
 the optimization model.
 
 Input:
-    data/processed/optimization_forecast_jobs.parquet
+    data/processed/optimization_ensemble_jobs.parquet
 
 Output:
     data/processed/optimization_jobs_params.json
@@ -18,7 +18,7 @@ import math
 import pandas as pd
 
 
-INPUT_PATH = Path("data/processed/optimization_forecast_jobs.parquet")
+INPUT_PATH = Path("data/processed/optimization_ensemble_jobs.parquet")
 OUTPUT_PATH = Path("data/processed/optimization_jobs_params.json")
 
 SLOT_SECONDS = 900

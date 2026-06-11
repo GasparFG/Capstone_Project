@@ -19,7 +19,7 @@ Outputs:
     data/forecast/good_job_level_forecast.csv
     data/forecast/good_job_level_forecast.parquet
     data/forecast/good_job_level_forecast_validation.csv
-    data/processed/optimization_forecast_jobs.parquet
+    data/processed/optimization_ensemble_jobs.parquet
 """
 
 from pathlib import Path
@@ -53,7 +53,7 @@ VALIDATION_OUTPUT = FORECAST_DIR / "good_job_level_forecast_validation.csv"
 FORECAST_CSV_OUTPUT = FORECAST_DIR / "good_job_level_forecast.csv"
 FORECAST_PARQUET_OUTPUT = FORECAST_DIR / "good_job_level_forecast.parquet"
 
-OPTIMIZATION_PARQUET_OUTPUT = PROCESSED_DIR / "optimization_forecast_jobs.parquet"
+OPTIMIZATION_PARQUET_OUTPUT = PROCESSED_DIR / "optimization_ensemble_jobs.parquet"
 
 FORECAST_HORIZON_SECONDS = 86_400
 MAX_FORECAST_JOBS = 10_000

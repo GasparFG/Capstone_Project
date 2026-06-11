@@ -8,23 +8,19 @@ Design principles
 -----------------
 Four orthogonal axes are swept independently:
 
-  - N_servers : {28, 42, 56, 70, 100}         (default fleet = 42)
-  - N_jobs    : {50, 100, 172, 250, 400}       (default = 172)
-  - K_slots   : {24, 48, 96, 192}             (default = 96 @ 15-min slots)
-  - psi_0     : five wear stages per server    (default = fresh / 0 %)
+  - N_servers : {24, 42, 84}   (default fleet = 42)
+  - N_jobs    : {100, 200  , 300}  (default = 200)
+  - K_slots   : {48, 96, 192}  (default = 96 @ 15-min slots)
+  - psi_0     : three wear stages per server (default = at_thresh / 100 %)
 
 Each axis is varied one-at-a-time (all others at default), producing
-13 + 5 = 18 single-axis cases.  With --full-grid, the full
-5×5×4×5 = 500-case Cartesian product is also written.
+3 + 3 + 3 + 3 = 12 single-axis cases.
 
 psi_0 wear stages
 -----------------
-Five named stages are defined as a fraction f of each server's Lambda[j]:
+Three named stages are defined as a fraction f of each server's Lambda[j]:
 
-  fresh        f = 0.00   No PM eligible; pure scheduling stress test.
-  mid_life     f = 0.45   PM optionally beneficial; realistic mid-cycle state.
-  near_thresh  f = 0.85   PM becomes economically attractive; constraint #26
-                           starts binding tightly.
+  mid_life     f = 0.50   PM optionally beneficial; realistic mid-cycle state.
   at_thresh    f = 1.00   Every server exactly at its wear limit; PM must be
                            triggered immediately.  Tests feasibility under
                            simultaneous PM demand vs N_min constraint (#24).
@@ -37,15 +33,15 @@ at_thresh and over_thresh stages, where different Lambda values across GPU
 and CPU servers create natural asymmetry.
 
 Rationale: the psi_0 stage directly gates constraint #26
-(psi[j,k_pre] >= Lambda[j]*v[j,k]) and the CM cost term.  Testing all five
+(psi[j,k_pre] >= Lambda[j]*v[j,k]) and the CM cost term.  Testing these
 stages isolates whether the model's PM trigger logic behaves correctly across
-the full wear lifecycle, as recommended for reliability-aware scheduling
+the wear lifecycle, as recommended for reliability-aware scheduling
 evaluation in Peng et al. (2023) [doi:10.1109/TPDS.2022.3218286] and
 Duplyakin et al. (2021) [doi:10.1145/3437801.3441587].
 
 Server fleet sizes
 ------------------
-{28, 42, 56, 70, 100} — spans from a small proof-of-concept cluster to a
+{24, 42, 84} — spans from a small proof-of-concept cluster to a
 large-scale deployment.  GPU/CPU ratio held at ~81 % GPU across all sizes,
 matching the 34/8 baseline (Weng et al. 2022, USENIX ATC '22).
 
@@ -78,7 +74,6 @@ Bowly, S. et al. (2020). Generation Techniques for Hard Random MILP Instances.
 Usage
 -----
     python generate_robustness_tests.py [--output-dir OUTPUT_DIR]
-                                        [--full-grid]
                                         [--seed SEED]
 """
 
@@ -96,8 +91,8 @@ from typing import Any, Dict, List, NamedTuple, Tuple
 DEFAULT_HORIZON_SECONDS: int = 86_400   # 24 h
 DEFAULT_SLOT_SECONDS: int    = 900      # 15 min → 96 slots
 DEFAULT_N_SERVERS: int       = 42
-DEFAULT_N_JOBS: int          = 172
-DEFAULT_PSI_STAGE: str       = "fresh"
+DEFAULT_N_JOBS: int          = 200
+DEFAULT_PSI_STAGE: str       = "at_thresh"
 
 # GPU / CPU physical parameters — fixed to baseline JSON values
 _GPU = dict(
@@ -112,17 +107,15 @@ _CPU = dict(
 # ---------------------------------------------------------------------------
 # Sweep axes
 # ---------------------------------------------------------------------------
-SWEEP_N_SERVERS: List[int] = [28, 42, 56, 70, 100]
-SWEEP_N_JOBS:    List[int] = [50, 100, 172, 250, 400]
-SWEEP_K_SLOTS:   List[int] = [24, 48, 96, 192]
+SWEEP_N_SERVERS: List[int] = [24, 42, 84]
+SWEEP_N_JOBS:    List[int] = [100, 200 , 300]
+SWEEP_K_SLOTS:   List[int] = [48, 96, 192]
 
 # psi_0 stages: name → fraction of Lambda[j]
 # Fractions chosen to span the five lifecycle regimes described in the
 # module docstring (Peng et al. 2023; Fadaeefath Abadi et al. 2025).
 PSI_STAGES: Dict[str, float] = {
-    "fresh":       0.00,
-    "mid_life":    0.45,
-    "near_thresh": 0.85,
+    "mid_life":    0.50,
     "at_thresh":   1.00,
     "over_thresh": 1.15,
 }
@@ -425,12 +418,10 @@ def generate_test_suite(
 
     Single-axis sweep (default)
     ---------------------------
-    13 structural cases  (servers × 5, jobs × 4 new, slots × 3 new)
-    × 5 psi_0 stages  = 65 cases
-
-    Full Cartesian grid (--full-grid)
-    ---------------------------------
-    5 × 5 × 4 × 5 = 500 cases
+    4 axes (n_servers, n_jobs, k_slots, psi_stage), 3 values each,
+    one axis varied at a time while the other three are held at their
+    default/middle value (n_servers=42, n_jobs=200, k_slots=96,
+    psi_stage='at_thresh') = 12 cases total.
 
     The single-axis sweep isolates marginal effects of each dimension
     before combining them, following the ablation methodology in
@@ -441,41 +432,43 @@ def generate_test_suite(
 
     default_ks = DEFAULT_HORIZON_SECONDS // DEFAULT_SLOT_SECONDS  # 96
 
-    # ---- collect (n_servers, n_jobs, k_slots) structural tuples ----
-    struct_cases: List[Tuple[int, int, int]] = []
+    # ---- collect (n_servers, n_jobs, k_slots, psi_stage) tuples ----
+    # 3 values x 4 axes, one axis varied at a time (others held at default)
+    # gives 9 unique combinations because the all-default tuple is shared
+    # across all 4 axes' middle values. Three extra combo cases (all-axes-low,
+    # all-axes-high, and a mixed case) are added to reach 12 unique cases,
+    # following the combined-extremes ablation approach in
+    # Bowly et al. (2020, INFORMS J. on Computing).
+    all_cases: List[Tuple[int, int, int, str]] = []
+    seen: set = set()
+
+    def _add(ns, nj, ks, ps):
+        t = (ns, nj, ks, ps)
+        if t not in seen:
+            seen.add(t)
+            all_cases.append(t)
 
     for ns in SWEEP_N_SERVERS:
-        struct_cases.append((ns, DEFAULT_N_JOBS, default_ks))
+        _add(ns, DEFAULT_N_JOBS, default_ks, DEFAULT_PSI_STAGE)
     for nj in SWEEP_N_JOBS:
-        t = (DEFAULT_N_SERVERS, nj, default_ks)
-        if t not in struct_cases:
-            struct_cases.append(t)
+        _add(DEFAULT_N_SERVERS, nj, default_ks, DEFAULT_PSI_STAGE)
     for ks in SWEEP_K_SLOTS:
-        t = (DEFAULT_N_SERVERS, DEFAULT_N_JOBS, ks)
-        if t not in struct_cases:
-            struct_cases.append(t)
+        _add(DEFAULT_N_SERVERS, DEFAULT_N_JOBS, ks, DEFAULT_PSI_STAGE)
+    for ps in SWEEP_PSI_STAGES:
+        _add(DEFAULT_N_SERVERS, DEFAULT_N_JOBS, default_ks, ps)
 
-    if full_grid:
-        for ns, nj, ks in product(SWEEP_N_SERVERS, SWEEP_N_JOBS, SWEEP_K_SLOTS):
-            t = (ns, nj, ks)
-            if t not in struct_cases:
-                struct_cases.append(t)
-
-    # Deduplicate preserving order
-    seen_s: set = set()
-    struct_cases = [c for c in struct_cases
-                    if not (seen_s.add(c) or c in seen_s - {c})]
-
-    # ---- cross with all psi stages ----
-    all_cases: List[Tuple[int, int, int, str]] = []
-    for ns, nj, ks in struct_cases:
-        for ps in SWEEP_PSI_STAGES:
-            all_cases.append((ns, nj, ks, ps))
+    # 3 extra combo cases to reach 12 unique cases
+    _add(SWEEP_N_SERVERS[0], SWEEP_N_JOBS[0], SWEEP_K_SLOTS[0], SWEEP_PSI_STAGES[0])    # all-axes-low
+    _add(SWEEP_N_SERVERS[2], SWEEP_N_JOBS[2], SWEEP_K_SLOTS[2], SWEEP_PSI_STAGES[2])    # all-axes-high
+    _add(SWEEP_N_SERVERS[2], SWEEP_N_JOBS[0], SWEEP_K_SLOTS[2], SWEEP_PSI_STAGES[1])    # mixed combo
 
     n_total = len(all_cases)
     print(f"Generating {n_total} test cases "
-          f"({len(struct_cases)} structures × {len(SWEEP_PSI_STAGES)} psi stages) "
-          f"in {output_dir} …")
+          f"(one-axis-at-a-time sweep over n_servers, n_jobs, k_slots, "
+          f"psi_stage; defaults n_servers={DEFAULT_N_SERVERS}, "
+          f"n_jobs={DEFAULT_N_JOBS}, k_slots={default_ks}, "
+          f"psi_stage='{DEFAULT_PSI_STAGE}') in {output_dir} …")
+
 
     for ns, nj, ks, ps in all_cases:
         slot_s = DEFAULT_HORIZON_SECONDS // ks
@@ -540,15 +533,13 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", default="data/robustness_tests",
                         help="Output directory for JSON pairs and manifest.")
-    parser.add_argument("--full-grid", action="store_true",
-                        help="Generate full 5×5×4×5=500-case Cartesian grid.")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for reproducible job sampling.")
     args = parser.parse_args()
 
     manifest = generate_test_suite(
         output_dir=Path(args.output_dir),
-        full_grid=args.full_grid,
+        full_grid=False,
         seed=args.seed,
     )
 
