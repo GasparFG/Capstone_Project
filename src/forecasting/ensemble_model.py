@@ -3,7 +3,7 @@ ensemble_model.py
 =================
 Two-stage ensemble pipeline for datacenter resource forecasting.
 
-ARCHITECTURE — Scenario B: Generative Workload Scenario Tool
+ARCHITECTURE: Generative Workload Scenario Tool
 =============================================================
 Stage 0  — Synthetic Workload Generation
            Samples interarrival timing, job_type, role, app_name from
@@ -840,7 +840,7 @@ def run_wilcoxon(y_true, base_pred, ens_pred, kind: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 13: 24-HOUR FORECAST — SCENARIO B WORKLOAD GENERATOR
+# SECTION 13: 24-HOUR FORECAST — WORKLOAD GENERATOR
 # ════════════════════════════════════════════════════════════════════════════
 
 def _sample_from(pool: pd.Series, rng: np.random.Generator) -> str:
@@ -1182,7 +1182,7 @@ def write_report_text(all_metrics, baseline_vs_ens, wilcoxon_df, output_dir):
     )
     a("")
     a("─" * 72)
-    a("5. WORKLOAD GENERATION (SCENARIO B)")
+    a("5. WORKLOAD GENERATION")
     a("─" * 72)
     a(
         "Future jobs are unknown. Stage 0 generates synthetic jobs by sampling "
@@ -1235,7 +1235,7 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("  ENSEMBLE FORECAST PIPELINE  (Scenario B)")
+    print("  ENSEMBLE FORECAST PIPELINE")
     print("=" * 60)
     print(
         "\n  Architecture: Historical Data → Synthetic Workload Generation"
@@ -1337,7 +1337,7 @@ def main():
     write_report_text(metrics_df, bl_ens, wil, METRICS_DIR)
 
     # ── 24-hour Forecast using selected ensemble winners ──────────────────────
-    print("\n[7] Generating 24-hour Scenario B forecast (using selected ensembles)...")
+    print("\n[7] Generating 24-hour forecast (using selected ensembles)...")
     forecast = generate_forecast(
         data,
         cpu_fit, cpu_enc, best_cpu, len(cpu_enc.classes_),
