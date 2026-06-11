@@ -11,7 +11,7 @@ Four orthogonal axes are swept independently:
   - N_servers : {24, 42, 84}   (default fleet = 42)
   - N_jobs    : {100, 200  , 300}  (default = 200)
   - K_slots   : {48, 96, 192}  (default = 96 @ 15-min slots)
-  - psi_0     : three wear stages per server (default = at_thresh / 100 %)
+  - psi_0     : three wear stages per server (default = mid_life / 50 %)
 
 Each axis is varied one-at-a-time (all others at default), producing
 3 + 3 + 3 + 3 = 12 single-axis cases.
@@ -92,7 +92,7 @@ DEFAULT_HORIZON_SECONDS: int = 86_400   # 24 h
 DEFAULT_SLOT_SECONDS: int    = 900      # 15 min → 96 slots
 DEFAULT_N_SERVERS: int       = 42
 DEFAULT_N_JOBS: int          = 200
-DEFAULT_PSI_STAGE: str       = "at_thresh"
+DEFAULT_PSI_STAGE: str       = "mid_life"
 
 # GPU / CPU physical parameters — fixed to baseline JSON values
 _GPU = dict(
