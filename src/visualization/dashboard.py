@@ -15,6 +15,8 @@ st.set_page_config(
     layout="wide",
 )
 
+# MOBILE DETECTION
+IS_MOBILE = st.query_params.get("mobile", "false") == "true"
 
 st.markdown(
     """
