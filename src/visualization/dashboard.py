@@ -100,13 +100,13 @@ st.markdown(
     }
 
     .server-grid-card {
-        border-radius: 10px;
-        padding: 16px 8px;
-        margin: 5px 0px;
+        border-radius: 8px;
+        padding: 8px 4px;
+        margin: 3px 0px;
         text-align: center;
         font-weight: 750;
         color: #111111;
-        min-height: 82px;
+        min-height: 52px;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -114,39 +114,39 @@ st.markdown(
     }
 
     .server-grid-id {
-        font-size: 18px;
-        margin-bottom: 5px;
+        font-size: 14px;
+        margin-bottom: 3px;
     }
 
     .server-grid-status {
-        font-size: 13px;
+        font-size: 10px;
         text-transform: uppercase;
     }
 
     .heatmap-clock-container {
         text-align: center;
-        margin-top: 10px;
-        margin-bottom: 18px;
+        margin-top: 6px;
+        margin-bottom: 8px;
     }
 
     .heatmap-clock-label {
-        font-size: 1.05rem;
+        font-size: 0.9rem;
         opacity: 0.8;
     }
 
     .heatmap-clock-time {
-        font-size: 2.35rem;
+        font-size: 1.7rem;
         font-weight: 850;
-        padding: 8px 22px;
-        border-radius: 12px;
+        padding: 5px 16px;
+        border-radius: 10px;
         display: inline-block;
         border: 1px solid rgba(255,255,255,0.18);
         background-color: rgba(255,255,255,0.04);
     }
 
     .heatmap-clock-slot {
-        margin-top: 6px;
-        font-size: 0.95rem;
+        margin-top: 4px;
+        font-size: 0.8rem;
         opacity: 0.7;
     }
     </style>
@@ -1381,7 +1381,7 @@ with tab_overview:
             df_dashboard_cost_breakdown_pct["percentage"] = 0
 
         chart_left_space, chart_middle_space, chart_right_space = st.columns(
-            [1, 3, 1]
+            [0.4, 5.2, 0.4]
         )
 
         with chart_middle_space:
@@ -1404,8 +1404,8 @@ with tab_overview:
                 yaxis_title="",
                 xaxis=dict(range=[0, 100]),
                 legend_title_text="Cost Type",
-                height=310,
-                margin=dict(l=20, r=20, t=70, b=50),
+                height=430,
+                margin=dict(l=80, r=140, t=75, b=75),
                 title_x=0.5,
                 uniformtext_minsize=20,
                 uniformtext_mode="show",
@@ -1422,10 +1422,10 @@ with tab_overview:
             fig_dashboard_cost_breakdown_pct = apply_dashboard_chart_font(
                 fig_dashboard_cost_breakdown_pct,
                 title_size=30,
-                axis_title_size=23,
-                axis_tick_size=20,
-                legend_size=20,
-                text_size=24,
+                axis_title_size=22,
+                axis_tick_size=19,
+                legend_size=19,
+                text_size=23,
             )
 
             fig_dashboard_cost_breakdown_pct.update_traces(
@@ -2055,8 +2055,8 @@ with tab_servers:
                         dashboard_selected_slot
                     )
 
-                    bottom_col_left, bottom_col_center, bottom_col_right = st.columns(
-                        [4, 3, 2]
+                    bottom_col_left, bottom_col_center = st.columns(
+                        [4, 2]
                     )
 
                     with bottom_col_left:
@@ -2097,33 +2097,6 @@ with tab_servers:
                             unsafe_allow_html=True,
                         )
 
-                    with bottom_col_right:
-                        nav_col1, nav_col2 = st.columns(2)
-
-                        with nav_col1:
-                            if st.button(
-                                "Previous",
-                                key="dashboard_prev_slot_btn",
-                                width="stretch",
-                            ):
-                                st.session_state.dashboard_heatmap_slot = max(
-                                    dashboard_min_slot,
-                                    int(st.session_state.dashboard_heatmap_slot) - 1,
-                                )
-                                st.rerun()
-
-                        with nav_col2:
-                            if st.button(
-                                "Next",
-                                key="dashboard_next_slot_btn",
-                                width="stretch",
-                            ):
-                                st.session_state.dashboard_heatmap_slot = min(
-                                    dashboard_max_slot,
-                                    int(st.session_state.dashboard_heatmap_slot) + 1,
-                                )
-                                st.rerun()
-
                     st.caption(
                         f"Selected slot: {dashboard_selected_slot} | Time: {dashboard_selected_time}"
                     )
@@ -2134,7 +2107,7 @@ with tab_servers:
 
                     render_dashboard_server_status_grid(
                         df_dashboard_server_load_slot=df_dashboard_server_load_slot,
-                        servers_per_row=7,
+                        servers_per_row=10,
                     )
 
 
@@ -2595,16 +2568,17 @@ with tab_compare:
                     xaxis_title="Cost",
                     yaxis_title="Scenario",
                     legend_title_text="Cost Type",
-                    uniformtext_minsize=17,
+                    uniformtext_minsize=13,
                     uniformtext_mode="show",
-                    height=520,
+                    height=380,
+                    margin=dict(l=90, r=170, t=65, b=55),
                     yaxis=dict(autorange="reversed"),
                 )
 
                 for dashboard_trace in fig_dashboard_cost_breakdown.data:
                     dashboard_trace.textposition = "inside"
                     dashboard_trace.textfont = dict(
-                        size=20,
+                        size=15,
                         color="white",
                     )
 
@@ -2619,7 +2593,7 @@ with tab_compare:
                         text=f"Total: {format_dashboard_currency(dashboard_row['total_cost'])}",
                         showarrow=False,
                         font=dict(
-                            size=20,
+                            size=15,
                             color="white",
                         ),
                         xanchor="left",
@@ -2633,7 +2607,12 @@ with tab_compare:
                 )
 
                 fig_dashboard_cost_breakdown = apply_dashboard_chart_font(
-                    fig_dashboard_cost_breakdown
+                    fig_dashboard_cost_breakdown,
+                    title_size=24,
+                    axis_title_size=17,
+                    axis_tick_size=15,
+                    legend_size=15,
+                    text_size=15,
                 )
 
                 st.plotly_chart(

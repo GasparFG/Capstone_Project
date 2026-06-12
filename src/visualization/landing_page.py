@@ -3,8 +3,10 @@ import streamlit as st
 st.title("Workload Prediction and Scheduling Optimization for Energy-Efficient, Reliable, and Service-Aware Data Centers")
 st.write("Welcome")
 
-if st.button("Go to Dashboard"):
-    st.switch_page("visualization/dashboard.py")
+st.link_button(
+    "Go to Dashboard",
+    "https://dashboard-workload-optimization-and-scheduling.streamlit.app"
+)
 
 st.divider()
 
