@@ -4,7 +4,7 @@ st.title("Workload Prediction and Scheduling Optimization for Energy-Efficient, 
 st.write("Welcome")
 
 st.link_button(
-    "📊 Launch Dashboard",
+    "Go to Dashboard",
     "https://dashboard-workload-optimization-and-scheduling.streamlit.app"
 )
 
