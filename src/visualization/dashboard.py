@@ -15,8 +15,38 @@ st.set_page_config(
     layout="wide",
 )
 
+
 # MOBILE DETECTION
 IS_MOBILE = st.query_params.get("mobile", "false") == "true"
+
+if IS_MOBILE:
+    st.info("📱 Mobile View")
+else:
+    st.info("🖥️ Desktop View")
+
+# ============================================================
+# MOBILE CONFIGURATION
+# ============================================================
+
+if IS_MOBILE:
+
+    DASHBOARD_CHART_HEIGHT = 320
+    DASHBOARD_SERVERS_PER_ROW = 4
+
+    DASHBOARD_TITLE_SIZE = 18
+    DASHBOARD_AXIS_TITLE_SIZE = 12
+    DASHBOARD_AXIS_TICK_SIZE = 10
+    DASHBOARD_LEGEND_SIZE = 10
+
+else:
+
+    DASHBOARD_CHART_HEIGHT = 550
+    DASHBOARD_SERVERS_PER_ROW = 10
+
+    DASHBOARD_TITLE_SIZE = 24
+    DASHBOARD_AXIS_TITLE_SIZE = 17
+    DASHBOARD_AXIS_TICK_SIZE = 15
+    DASHBOARD_LEGEND_SIZE = 15
 
 st.markdown(
     """
@@ -532,6 +562,10 @@ def apply_dashboard_chart_font(
         textfont=dict(size=text_size),
     )
 
+    fig.update_layout(
+    height=DASHBOARD_CHART_HEIGHT
+    )
+
     return fig
 
 
@@ -996,7 +1030,7 @@ def get_dashboard_status_color(status: str) -> str:
 
 def render_dashboard_server_status_grid(
     df_dashboard_server_load_slot: pd.DataFrame,
-    servers_per_row: int = 7,
+    servers_per_row: DASHBOARD_SERVERS_PER_ROW,
 ) -> None:
     """
     Renders a compact server grid.
@@ -2109,7 +2143,7 @@ with tab_servers:
 
                     render_dashboard_server_status_grid(
                         df_dashboard_server_load_slot=df_dashboard_server_load_slot,
-                        servers_per_row=10,
+                        servers_per_row=DASHBOARD_SERVERS_PER_ROW,
                     )
 
 
@@ -2609,12 +2643,26 @@ with tab_compare:
                 )
 
                 fig_dashboard_cost_breakdown = apply_dashboard_chart_font(
-                    fig_dashboard_cost_breakdown,
-                    title_size=24,
-                    axis_title_size=17,
-                    axis_tick_size=15,
-                    legend_size=15,
-                    text_size=15,
+                    fig,
+                    title_size = (
+                        title_size
+                        or DASHBOARD_TITLE_SIZE
+                    )
+
+                    axis_title_size = (
+                        axis_title_size
+                        or DASHBOARD_AXIS_TITLE_SIZE
+                    )
+
+                    axis_tick_size = (
+                        axis_tick_size
+                        or DASHBOARD_AXIS_TICK_SIZE
+                    )
+
+                    legend_size = (
+                        legend_size
+                        or DASHBOARD_LEGEND_SIZE
+                    )
                 )
 
                 st.plotly_chart(
