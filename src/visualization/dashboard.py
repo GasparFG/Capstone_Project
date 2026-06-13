@@ -2107,7 +2107,7 @@ with tab_servers:
 
                     render_dashboard_server_status_grid(
                         df_dashboard_server_load_slot=df_dashboard_server_load_slot,
-                        servers_per_row=10,
+                        servers_per_row=7,
                     )
 
 
