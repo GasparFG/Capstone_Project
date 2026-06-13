@@ -47,8 +47,39 @@ st.image("docs/architecture_diagram.png")
 # ---------------- FORECASTING ----------------
 st.header("Forecasting Module")
 st.markdown("""
-HERE GOES THE FORECASTING SUMMARY
-BLABLABLABLABLABLABLA
+The forecasting module generates a synthetic 24-hour job workload from historical patterns using a
+three-stage generative ensemble pipeline trained on real production data from Alibaba's GPU cluster trace.
+
+**Stage 0 — Workload Sampling**
+
+Future jobs are unknown, so the pipeline first generates synthetic job descriptors by sampling
+job type, role, and application name from recent historical distributions using non-parametric
+empirical sampling. Interarrival times are sampled from the same trace, producing a realistic
+arrival sequence of approximately 5,000 jobs for the planning horizon.
+
+**Stage 1 — CPU & Memory Forecasting (Classification)**
+
+Two ensemble classifiers predict discrete CPU and memory request classes for each synthetic job.
+Base models — XGBoost and Random Forest — are trained using 5-fold time-series cross-validation,
+and their out-of-fold (OOF) predictions are used to train three meta-learner strategies:
+
+- **SoftVoting** — averages class probabilities across base models
+- **Stack-LR** — logistic regression meta-learner trained on OOF predictions
+- **Stack-XGB** — XGBoost meta-learner trained on OOF predictions
+
+The best-performing strategy per target is selected via Wilcoxon signed-rank test against the
+single-model XGBoost baseline (α = 0.05). SoftVoting was selected for CPU (macro-F1: **0.842**,
+p = 4×10⁻⁶) and Stack-XGB for memory (macro-F1: **0.630**, p = 3×10⁻⁷).
+
+**Stage 2 — Duration Forecasting (Regression)**
+
+Job duration is predicted using the Stage 1 *predicted* CPU and memory values — not the actual
+ones — to maintain train-serving consistency and avoid data leakage. Three regression ensembles
+are evaluated (WeightedAvg, Stack-Ridge, Stack-XGB), all trained exclusively on OOF predictions
+from the training set. Stack-XGB was selected as best (RMSLE: **1.155**, p = 0.0069), reducing
+error on high-duration outliers compared to the XGBoost baseline.
+
+All ensemble comparisons are validated with the Wilcoxon signed-rank test.
 """)
 
 # ---------------- OPTIMIZATION ----------------
